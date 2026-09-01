@@ -1,0 +1,617 @@
+{
+  "version": 4,
+  "app_title": "TATA Social & Gaming Platform Plan",
+  "nav": {
+    "placement": "none",
+    "items": []
+  },
+  "pages": [
+    {
+      "id": "page-1f0f33bb",
+      "name": "Authentication",
+      "route": "/login",
+      "item_ref": {
+        "index": 1,
+        "text": "Build secure email/password signup, login, logout, and account deletion plus the social-first Home experience: responsive TATA header/navigation, search, notifications, expiring stories with creation/viewing/reactions/replies, multimedia post composer, privacy controls, paginated feed, reactions, threaded comments, sharing, and owner edit/delete actions. Design direction: crisp white and sky-blue (#1E9EF5) editorial social interface with cyan (#22D3EE) highlights, ink text (#0D1420), light-gray dividers, subtle shadows, compact mobile-first composition, and authentic user/media content; centerpiece is an immersive story rail flowing into a dense, realistic social feed."
+      },
+      "blocks": [
+        {
+          "id": "auth-brand",
+          "type": "text",
+          "label": "TATA identity",
+          "hint": "Sky-blue wordmark and concise community message",
+          "x": 0,
+          "y": 0,
+          "w": 5,
+          "h": 12,
+          "item_ref": {
+            "index": 1,
+            "text": "Build secure email/password signup, login, logout, and account deletion plus the social-first Home experience: responsive TATA header/navigation, search, notifications, expiring stories with creation/viewing/reactions/replies, multimedia post composer, privacy controls, paginated feed, reactions, threaded comments, sharing, and owner edit/delete actions. Design direction: crisp white and sky-blue (#1E9EF5) editorial social interface with cyan (#22D3EE) highlights, ink text (#0D1420), light-gray dividers, subtle shadows, compact mobile-first composition, and authentic user/media content; centerpiece is an immersive story rail flowing into a dense, realistic social feed."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "auth-form",
+          "type": "form",
+          "label": "Login and signup",
+          "hint": "Email/password forms, validation, account-mode switch, and recovery guidance",
+          "x": 5,
+          "y": 0,
+          "w": 7,
+          "h": 12,
+          "item_ref": {
+            "index": 1,
+            "text": "Build secure email/password signup, login, logout, and account deletion plus the social-first Home experience: responsive TATA header/navigation, search, notifications, expiring stories with creation/viewing/reactions/replies, multimedia post composer, privacy controls, paginated feed, reactions, threaded comments, sharing, and owner edit/delete actions. Design direction: crisp white and sky-blue (#1E9EF5) editorial social interface with cyan (#22D3EE) highlights, ink text (#0D1420), light-gray dividers, subtle shadows, compact mobile-first composition, and authentic user/media content; centerpiece is an immersive story rail flowing into a dense, realistic social feed."
+          },
+          "type_source": "palette"
+        }
+      ],
+      "deleted_ids": []
+    },
+    {
+      "id": "page-e33519e5",
+      "name": "Home",
+      "route": "/",
+      "item_ref": {
+        "index": 1,
+        "text": "Build secure email/password signup, login, logout, and account deletion plus the social-first Home experience: responsive TATA header/navigation, search, notifications, expiring stories with creation/viewing/reactions/replies, multimedia post composer, privacy controls, paginated feed, reactions, threaded comments, sharing, and owner edit/delete actions. Design direction: crisp white and sky-blue (#1E9EF5) editorial social interface with cyan (#22D3EE) highlights, ink text (#0D1420), light-gray dividers, subtle shadows, compact mobile-first composition, and authentic user/media content; centerpiece is an immersive story rail flowing into a dense, realistic social feed."
+      },
+      "blocks": [
+        {
+          "id": "home-nav",
+          "type": "nav",
+          "label": "TATA header",
+          "hint": "Logo, search, notifications, messages, avatar; responsive navigation for Home, Friends, Games, Messages, Profile",
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 1,
+          "item_ref": {
+            "index": 1,
+            "text": "Build secure email/password signup, login, logout, and account deletion plus the social-first Home experience: responsive TATA header/navigation, search, notifications, expiring stories with creation/viewing/reactions/replies, multimedia post composer, privacy controls, paginated feed, reactions, threaded comments, sharing, and owner edit/delete actions. Design direction: crisp white and sky-blue (#1E9EF5) editorial social interface with cyan (#22D3EE) highlights, ink text (#0D1420), light-gray dividers, subtle shadows, compact mobile-first composition, and authentic user/media content; centerpiece is an immersive story rail flowing into a dense, realistic social feed."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "home-sidebar",
+          "type": "sidebar",
+          "label": "Primary navigation",
+          "hint": "Home, Friends, Games, Messages, Profile on desktop",
+          "x": 0,
+          "y": 1,
+          "w": 2,
+          "h": 10,
+          "item_ref": {
+            "index": 1,
+            "text": "Build secure email/password signup, login, logout, and account deletion plus the social-first Home experience: responsive TATA header/navigation, search, notifications, expiring stories with creation/viewing/reactions/replies, multimedia post composer, privacy controls, paginated feed, reactions, threaded comments, sharing, and owner edit/delete actions. Design direction: crisp white and sky-blue (#1E9EF5) editorial social interface with cyan (#22D3EE) highlights, ink text (#0D1420), light-gray dividers, subtle shadows, compact mobile-first composition, and authentic user/media content; centerpiece is an immersive story rail flowing into a dense, realistic social feed."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "stories-rail",
+          "type": "list",
+          "label": "Stories rail",
+          "hint": "Add Story plus horizontally scrollable photo, video, and text stories",
+          "x": 2,
+          "y": 1,
+          "w": 7,
+          "h": 2,
+          "item_ref": {
+            "index": 1,
+            "text": "Build secure email/password signup, login, logout, and account deletion plus the social-first Home experience: responsive TATA header/navigation, search, notifications, expiring stories with creation/viewing/reactions/replies, multimedia post composer, privacy controls, paginated feed, reactions, threaded comments, sharing, and owner edit/delete actions. Design direction: crisp white and sky-blue (#1E9EF5) editorial social interface with cyan (#22D3EE) highlights, ink text (#0D1420), light-gray dividers, subtle shadows, compact mobile-first composition, and authentic user/media content; centerpiece is an immersive story rail flowing into a dense, realistic social feed."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "post-composer",
+          "type": "form",
+          "label": "Post composer",
+          "hint": "What's on your mind with text, photos, multi-photo, video, and privacy",
+          "x": 2,
+          "y": 3,
+          "w": 7,
+          "h": 2,
+          "item_ref": {
+            "index": 1,
+            "text": "Build secure email/password signup, login, logout, and account deletion plus the social-first Home experience: responsive TATA header/navigation, search, notifications, expiring stories with creation/viewing/reactions/replies, multimedia post composer, privacy controls, paginated feed, reactions, threaded comments, sharing, and owner edit/delete actions. Design direction: crisp white and sky-blue (#1E9EF5) editorial social interface with cyan (#22D3EE) highlights, ink text (#0D1420), light-gray dividers, subtle shadows, compact mobile-first composition, and authentic user/media content; centerpiece is an immersive story rail flowing into a dense, realistic social feed."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "social-feed",
+          "type": "list",
+          "label": "Social feed",
+          "hint": "Paginated posts with media, reactions, threaded comments, shares, and owner actions",
+          "x": 2,
+          "y": 5,
+          "w": 7,
+          "h": 7,
+          "item_ref": {
+            "index": 1,
+            "text": "Build secure email/password signup, login, logout, and account deletion plus the social-first Home experience: responsive TATA header/navigation, search, notifications, expiring stories with creation/viewing/reactions/replies, multimedia post composer, privacy controls, paginated feed, reactions, threaded comments, sharing, and owner edit/delete actions. Design direction: crisp white and sky-blue (#1E9EF5) editorial social interface with cyan (#22D3EE) highlights, ink text (#0D1420), light-gray dividers, subtle shadows, compact mobile-first composition, and authentic user/media content; centerpiece is an immersive story rail flowing into a dense, realistic social feed."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "home-contacts",
+          "type": "list",
+          "label": "Contacts and suggestions",
+          "hint": "Online friends and concise people suggestions",
+          "x": 9,
+          "y": 1,
+          "w": 3,
+          "h": 10,
+          "item_ref": {
+            "index": 1,
+            "text": "Build secure email/password signup, login, logout, and account deletion plus the social-first Home experience: responsive TATA header/navigation, search, notifications, expiring stories with creation/viewing/reactions/replies, multimedia post composer, privacy controls, paginated feed, reactions, threaded comments, sharing, and owner edit/delete actions. Design direction: crisp white and sky-blue (#1E9EF5) editorial social interface with cyan (#22D3EE) highlights, ink text (#0D1420), light-gray dividers, subtle shadows, compact mobile-first composition, and authentic user/media content; centerpiece is an immersive story rail flowing into a dense, realistic social feed."
+          },
+          "type_source": "palette"
+        }
+      ],
+      "deleted_ids": []
+    },
+    {
+      "id": "page-73195454",
+      "name": "Friends",
+      "route": "/friends",
+      "item_ref": {
+        "index": 2,
+        "text": "Build Friends and Messages as complete connected experiences: user search, requests with accept/decline, follow controls, friends and suggestions, profile access, online presence, conversation list, unread/read states, typing presence, and private message threads with responsive desktop and mobile layouts."
+      },
+      "blocks": [
+        {
+          "id": "friends-nav",
+          "type": "nav",
+          "label": "TATA header",
+          "hint": "Global search, notifications, messages, avatar, and primary navigation",
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 1,
+          "item_ref": {
+            "index": 2,
+            "text": "Build Friends and Messages as complete connected experiences: user search, requests with accept/decline, follow controls, friends and suggestions, profile access, online presence, conversation list, unread/read states, typing presence, and private message threads with responsive desktop and mobile layouts."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "friends-sidebar",
+          "type": "sidebar",
+          "label": "Friends filters",
+          "hint": "Requests, friends, suggestions, following, and followers",
+          "x": 0,
+          "y": 1,
+          "w": 3,
+          "h": 10,
+          "item_ref": {
+            "index": 2,
+            "text": "Build Friends and Messages as complete connected experiences: user search, requests with accept/decline, follow controls, friends and suggestions, profile access, online presence, conversation list, unread/read states, typing presence, and private message threads with responsive desktop and mobile layouts."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "people-search",
+          "type": "text",
+          "label": "Find people",
+          "hint": "Search by name or username with responsive results",
+          "x": 3,
+          "y": 1,
+          "w": 9,
+          "h": 2,
+          "item_ref": {
+            "index": 2,
+            "text": "Build Friends and Messages as complete connected experiences: user search, requests with accept/decline, follow controls, friends and suggestions, profile access, online presence, conversation list, unread/read states, typing presence, and private message threads with responsive desktop and mobile layouts."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "people-results",
+          "type": "list",
+          "label": "People results",
+          "hint": "Requests, friend cards, follow state, online presence, message and profile actions",
+          "x": 3,
+          "y": 3,
+          "w": 9,
+          "h": 8,
+          "item_ref": {
+            "index": 2,
+            "text": "Build Friends and Messages as complete connected experiences: user search, requests with accept/decline, follow controls, friends and suggestions, profile access, online presence, conversation list, unread/read states, typing presence, and private message threads with responsive desktop and mobile layouts."
+          },
+          "type_source": "palette"
+        }
+      ],
+      "deleted_ids": []
+    },
+    {
+      "id": "page-f12608de",
+      "name": "Messages",
+      "route": "/messages",
+      "item_ref": {
+        "index": 2,
+        "text": "Build Friends and Messages as complete connected experiences: user search, requests with accept/decline, follow controls, friends and suggestions, profile access, online presence, conversation list, unread/read states, typing presence, and private message threads with responsive desktop and mobile layouts."
+      },
+      "blocks": [
+        {
+          "id": "messages-nav",
+          "type": "nav",
+          "label": "TATA header",
+          "hint": "Global navigation and account controls",
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 1,
+          "item_ref": {
+            "index": 2,
+            "text": "Build Friends and Messages as complete connected experiences: user search, requests with accept/decline, follow controls, friends and suggestions, profile access, online presence, conversation list, unread/read states, typing presence, and private message threads with responsive desktop and mobile layouts."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "conversation-list",
+          "type": "list",
+          "label": "Conversation list",
+          "hint": "Search, recent conversations, unread counts, online state, and timestamps",
+          "x": 0,
+          "y": 1,
+          "w": 4,
+          "h": 10,
+          "item_ref": {
+            "index": 2,
+            "text": "Build Friends and Messages as complete connected experiences: user search, requests with accept/decline, follow controls, friends and suggestions, profile access, online presence, conversation list, unread/read states, typing presence, and private message threads with responsive desktop and mobile layouts."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "chat-thread",
+          "type": "chat",
+          "label": "Conversation thread",
+          "hint": "Message history, read receipts, online state, and typing indicator",
+          "x": 4,
+          "y": 1,
+          "w": 8,
+          "h": 8,
+          "item_ref": {
+            "index": 2,
+            "text": "Build Friends and Messages as complete connected experiences: user search, requests with accept/decline, follow controls, friends and suggestions, profile access, online presence, conversation list, unread/read states, typing presence, and private message threads with responsive desktop and mobile layouts."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "message-composer",
+          "type": "form",
+          "label": "Message composer",
+          "hint": "Private message input and send action",
+          "x": 4,
+          "y": 9,
+          "w": 8,
+          "h": 2,
+          "item_ref": {
+            "index": 2,
+            "text": "Build Friends and Messages as complete connected experiences: user search, requests with accept/decline, follow controls, friends and suggestions, profile access, online presence, conversation list, unread/read states, typing presence, and private message threads with responsive desktop and mobile layouts."
+          },
+          "type_source": "palette"
+        }
+      ],
+      "deleted_ids": []
+    },
+    {
+      "id": "page-9d71a702",
+      "name": "Games",
+      "route": "/games",
+      "item_ref": {
+        "index": 3,
+        "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+      },
+      "blocks": [
+        {
+          "id": "games-nav",
+          "type": "nav",
+          "label": "TATA header",
+          "hint": "Primary navigation with Games active",
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 1,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "games-hero",
+          "type": "hero",
+          "label": "Multiplayer lobby welcome",
+          "hint": "Distinct gaming centerpiece with active-room pulse and virtual coin context",
+          "x": 0,
+          "y": 1,
+          "w": 12,
+          "h": 3,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "lobby-controls",
+          "type": "form",
+          "label": "Lobby controls",
+          "hint": "Search, status, player count, and create-room action",
+          "x": 0,
+          "y": 4,
+          "w": 12,
+          "h": 1,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "game-rooms",
+          "type": "list",
+          "label": "Game rooms",
+          "hint": "Live-style room cards with host, occupancy, status, reward, and join action",
+          "x": 0,
+          "y": 5,
+          "w": 8,
+          "h": 7,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "game-activity",
+          "type": "list",
+          "label": "Player activity",
+          "hint": "Online players, recent rewards, and personal game statistics",
+          "x": 8,
+          "y": 5,
+          "w": 4,
+          "h": 7,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        }
+      ],
+      "deleted_ids": []
+    },
+    {
+      "id": "page-934f7619",
+      "name": "Profile",
+      "route": "/profile",
+      "item_ref": {
+        "index": 3,
+        "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+      },
+      "blocks": [
+        {
+          "id": "profile-nav",
+          "type": "nav",
+          "label": "TATA header",
+          "hint": "Primary navigation with Profile active",
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 1,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "profile-identity",
+          "type": "text",
+          "label": "Profile identity",
+          "hint": "Cover, avatar, editable name, username, bio, and social counts",
+          "x": 0,
+          "y": 1,
+          "w": 12,
+          "h": 4,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "profile-tabs",
+          "type": "tabs",
+          "label": "Profile sections",
+          "hint": "Posts, Friends, Followers, Following, and Game statistics",
+          "x": 0,
+          "y": 5,
+          "w": 12,
+          "h": 1,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "profile-content",
+          "type": "section",
+          "label": "Profile content",
+          "hint": "Selected profile section with posts and social/game details",
+          "x": 0,
+          "y": 6,
+          "w": 8,
+          "h": 7,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "profile-summary",
+          "type": "kpi",
+          "label": "Profile summary",
+          "hint": "Friend preview, follower summary, and game-stat highlights",
+          "x": 8,
+          "y": 6,
+          "w": 4,
+          "h": 7,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        }
+      ],
+      "deleted_ids": []
+    },
+    {
+      "id": "page-055e424f",
+      "name": "Wallet",
+      "route": "/wallet",
+      "item_ref": {
+        "index": 3,
+        "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+      },
+      "blocks": [
+        {
+          "id": "wallet-nav",
+          "type": "nav",
+          "label": "TATA header",
+          "hint": "Primary navigation and account controls",
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 1,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "coin-balance",
+          "type": "kpi",
+          "label": "TATA Coins balance",
+          "hint": "Large virtual balance with clear non-withdrawable disclaimer",
+          "x": 0,
+          "y": 1,
+          "w": 5,
+          "h": 3,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "game-rewards",
+          "type": "text",
+          "label": "Game rewards",
+          "hint": "Reward summary and earning explanations",
+          "x": 5,
+          "y": 1,
+          "w": 7,
+          "h": 3,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "coin-history",
+          "type": "table",
+          "label": "Coin history",
+          "hint": "Paginated ledger of rewards and virtual coin activity",
+          "x": 0,
+          "y": 4,
+          "w": 12,
+          "h": 7,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        }
+      ],
+      "deleted_ids": []
+    },
+    {
+      "id": "page-4d2f0ffb",
+      "name": "Settings",
+      "route": "/settings",
+      "item_ref": {
+        "index": 3,
+        "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+      },
+      "blocks": [
+        {
+          "id": "settings-nav",
+          "type": "nav",
+          "label": "TATA header",
+          "hint": "Primary navigation and account controls",
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 1,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "settings-sidebar",
+          "type": "sidebar",
+          "label": "Settings categories",
+          "hint": "Language, appearance, privacy, notifications, account",
+          "x": 0,
+          "y": 1,
+          "w": 3,
+          "h": 10,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "preferences-form",
+          "type": "form",
+          "label": "Preferences",
+          "hint": "Seven languages, Light/Dark/System, privacy, and notification controls",
+          "x": 3,
+          "y": 1,
+          "w": 9,
+          "h": 7,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        },
+        {
+          "id": "account-actions",
+          "type": "text",
+          "label": "Account actions",
+          "hint": "Logout and guarded destructive account deletion",
+          "x": 3,
+          "y": 8,
+          "w": 9,
+          "h": 3,
+          "item_ref": {
+            "index": 3,
+            "text": "Build the separate Games lobby plus complete Profile, Wallet, and Settings experiences: multiplayer lobby browsing and room creation/joining without placing games in Home; editable avatar/cover/bio, social counts and tabs, game statistics, virtual-only TATA Coins balance/history/rewards, seven-language preferences, Light/Dark/System appearance, privacy and notification controls, logout, and guarded account deletion."
+          },
+          "type_source": "palette"
+        }
+      ],
+      "deleted_ids": []
+    }
+  ],
+  "attached_to_plan": false
+}
