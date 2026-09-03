@@ -70,7 +70,46 @@ REQUEST_STATUS_VALUES = (
     "blocked",
 )
 MESSAGE_KIND_VALUES = ("text", "image", "video", "audio", "file", "system")
-ROOM_STATUS_VALUES = ("open", "in_progress", "finished", "closed")
+# Existing values preserved; "waiting"/"active" added for authoritative play.
+ROOM_STATUS_VALUES = (
+    "open",
+    "waiting",
+    "active",
+    "in_progress",
+    "finished",
+    "closed",
+)
+GAME_ACTION_KIND_VALUES = (
+    "join",
+    "leave",
+    "ready",
+    "start",
+    "buy_card",
+    "draw",
+    "mark",
+    "claim_quine",
+    "claim_double_quine",
+    "claim_full_house",
+    "place_tile",
+    "draw_tile",
+    "pass_turn",
+    "roll_dice",
+    "move_piece",
+    "capture",
+    "draw_line",
+    "close_box",
+    "discard",
+    "meld",
+    "shoot",
+    "pot_ball",
+    "foul",
+    "timeout",
+    "resign",
+    "round_end",
+    "settle",
+    "reaction",
+    "system",
+)
 LEDGER_REASON_VALUES = (
     "signup_bonus",
     "daily_reward",
@@ -82,7 +121,9 @@ LEDGER_REASON_VALUES = (
     "admin_adjustment",
 )
 THEME_VALUES = ("light", "dark", "system")
-LANGUAGE_VALUES = ("en", "es", "fr", "de", "pt", "ar", "hi")
+# English, French, Arabic, Hindi, Spanish, Portuguese (German retained for
+# backwards compatibility) plus Malagasy and Chinese.
+LANGUAGE_VALUES = ("en", "es", "fr", "de", "pt", "ar", "hi", "mg", "zh")
 
 
 # ---------------------------------------------------------------------------
@@ -1124,7 +1165,17 @@ class GameRoom(Base, TimestampMixin):
             "status IN " + str(ROOM_STATUS_VALUES), name="ck_game_room_status"
         ),
         CheckConstraint("max_players >= 2", name="ck_game_room_max_players"),
+        CheckConstraint("pot_coins >= 0", name="ck_game_room_pot_non_negative"),
+        CheckConstraint(
+            "state_version >= 0", name="ck_game_room_state_version"
+        ),
+        CheckConstraint("round_number >= 0", name="ck_game_room_round_number"),
         Index("ix_game_room_game_status", "game_id", "status"),
+        Index(
+            "ix_game_room_status_turn_deadline", "status", "turn_deadline_at"
+        ),
+        Index("ix_game_room_current_turn", "current_turn_account_id"),
+        Index("ix_game_room_winner", "winner_account_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, init=False)
@@ -1161,11 +1212,59 @@ class GameRoom(Base, TimestampMixin):
         DateTime(timezone=True), default=None, nullable=True
     )
 
+    # ---- Authoritative server-driven play -------------------------------
+    # Flexible per-game rules / configuration, JSON encoded as text so the
+    # same column serves loto tiers, domino Maty targets and variants, ludo,
+    # faritany, dots-and-boxes grid size, rami, tri and billiards.
+    rules_json: Mapped[str] = mapped_column(
+        Text, default="{}", server_default="{}", nullable=False
+    )
+    # Full authoritative match state owned by the server (JSON as text).
+    state_json: Mapped[str] = mapped_column(
+        Text, default="{}", server_default="{}", nullable=False
+    )
+    current_turn_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("account.id", ondelete="SET NULL"),
+        default=None,
+        nullable=True,
+    )
+    turn_deadline_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None, nullable=True
+    )
+    round_number: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    # Virtual coin pot only (accumulated entry coins); never real money.
+    pot_coins: Mapped[int] = mapped_column(
+        BigInteger, default=0, server_default="0", nullable=False
+    )
+    # Optimistic concurrency guard for authoritative state transitions.
+    state_version: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    winner_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("account.id", ondelete="SET NULL"),
+        default=None,
+        nullable=True,
+    )
+    settled_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None, nullable=True
+    )
+
     game: Mapped[Game] = relationship(back_populates="rooms", init=False)
     members: Mapped[list["GameRoomMember"]] = relationship(
         back_populates="room", cascade="all, delete-orphan", init=False
     )
     events: Mapped[list["GameRoomEvent"]] = relationship(
+        back_populates="room", cascade="all, delete-orphan", init=False
+    )
+    actions: Mapped[list["GameAction"]] = relationship(
+        back_populates="room", cascade="all, delete-orphan", init=False
+    )
+    bingo_cards: Mapped[list["BingoCard"]] = relationship(
+        back_populates="room", cascade="all, delete-orphan", init=False
+    )
+    reactions: Mapped[list["GameReaction"]] = relationship(
         back_populates="room", cascade="all, delete-orphan", init=False
     )
 
@@ -1242,6 +1341,219 @@ class GameRoomEvent(Base):
     )
 
     room: Mapped[GameRoom] = relationship(back_populates="events", init=False)
+
+
+class GameAction(Base):
+    """Append-only authoritative action log for a match.
+
+    Every accepted player or server action is recorded with the room state
+    version it produced, giving a deterministic, replayable match history.
+    Rows are never updated or deleted by application logic.
+    """
+
+    __tablename__ = "game_action"
+    __table_args__ = (
+        UniqueConstraint(
+            "room_id", "sequence", name="uq_game_action_room_sequence"
+        ),
+        CheckConstraint(
+            "kind IN " + str(GAME_ACTION_KIND_VALUES),
+            name="ck_game_action_kind",
+        ),
+        CheckConstraint("sequence >= 0", name="ck_game_action_sequence"),
+        CheckConstraint(
+            "state_version >= 0", name="ck_game_action_state_version"
+        ),
+        Index("ix_game_action_room_created", "room_id", "created_at"),
+        Index("ix_game_action_room_version", "room_id", "state_version"),
+        Index("ix_game_action_account_created", "account_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, init=False)
+    room_id: Mapped[int] = mapped_column(
+        ForeignKey("game_room.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # NULL for server-generated actions (timed draws, timeouts, settlement).
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("account.id", ondelete="SET NULL"),
+        default=None,
+        nullable=True,
+    )
+    kind: Mapped[str] = mapped_column(
+        String(32), default="system", nullable=False
+    )
+    # JSON encoded as text: dice values, tile placement, drawn number, etc.
+    payload_json: Mapped[str] = mapped_column(
+        Text, default="{}", server_default="{}", nullable=False
+    )
+    # Room state_version AFTER this action was applied.
+    state_version: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    # Monotonic per-room ordering, independent of clock skew.
+    sequence: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    round_number: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=None,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    room: Mapped[GameRoom] = relationship(back_populates="actions", init=False)
+
+
+class BingoCard(Base):
+    """A single purchased LOTO 9x3 card (1-10 cards per player per room).
+
+    Cards are bought with virtual coins only. The canonical grid, the drawn /
+    marked progress and the per-tier claim flags all live here so the server
+    remains the sole authority for Quine / Double Quine / Full House payouts.
+    """
+
+    __tablename__ = "bingo_card"
+    __table_args__ = (
+        UniqueConstraint(
+            "room_id",
+            "account_id",
+            "card_index",
+            name="uq_bingo_card_room_account_index",
+        ),
+        CheckConstraint(
+            "card_index >= 1 AND card_index <= 10",
+            name="ck_bingo_card_index_range",
+        ),
+        CheckConstraint(
+            "marked_count >= 0", name="ck_bingo_card_marked_non_negative"
+        ),
+        CheckConstraint(
+            "price_coins >= 0", name="ck_bingo_card_price_non_negative"
+        ),
+        Index("ix_bingo_card_room_account", "room_id", "account_id"),
+        Index("ix_bingo_card_account_created", "account_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, init=False)
+    room_id: Mapped[int] = mapped_column(
+        ForeignKey("game_room.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # 1..10 within the room for this player.
+    card_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Canonical immutable 9x3 grid as JSON text: 3 rows x 9 columns, 0 = blank.
+    grid_json: Mapped[str] = mapped_column(
+        Text, default="[]", server_default="[]", nullable=False
+    )
+    # Numbers of this card already drawn/marked, JSON list of ints.
+    marked_json: Mapped[str] = mapped_column(
+        Text, default="[]", server_default="[]", nullable=False
+    )
+    marked_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    # Count of marked cells per row, JSON list of 3 ints (tier detection).
+    row_progress_json: Mapped[str] = mapped_column(
+        Text, default="[0, 0, 0]", server_default="[0, 0, 0]", nullable=False
+    )
+    # Virtual coin price paid for this card (points only, no cash value).
+    price_coins: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    tier: Mapped[str] = mapped_column(String(16), default="", nullable=False)
+    claimed_quine: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    claimed_quine_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None, nullable=True
+    )
+    claimed_double_quine: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    claimed_double_quine_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None, nullable=True
+    )
+    claimed_full_house: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    claimed_full_house_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None, nullable=True
+    )
+    is_void: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=None,
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=None,
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    room: Mapped[GameRoom] = relationship(
+        back_populates="bingo_cards", init=False
+    )
+
+
+class GameReaction(Base):
+    """Persisted, ephemeral-style emoji reaction fired inside a game room."""
+
+    __tablename__ = "game_reaction"
+    __table_args__ = (
+        Index("ix_game_reaction_room_created", "room_id", "created_at"),
+        Index("ix_game_reaction_room_expires", "room_id", "expires_at"),
+        Index("ix_game_reaction_account_created", "account_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, init=False)
+    room_id: Mapped[int] = mapped_column(
+        ForeignKey("game_room.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("account.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Optional target: a seat, a tile, another player, etc.
+    target_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("account.id", ondelete="SET NULL"),
+        default=None,
+        nullable=True,
+    )
+    emoji: Mapped[str] = mapped_column(String(16), default="", nullable=False)
+    label: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    round_number: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    # When the floating reaction should stop being rendered.
+    expires_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None, nullable=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=None,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    room: Mapped[GameRoom] = relationship(
+        back_populates="reactions", init=False
+    )
 
 
 class PlayerGameStat(Base, TimestampMixin):

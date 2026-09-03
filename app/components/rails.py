@@ -56,6 +56,16 @@ def primary_rail(active: str = "home") -> rx.Component:
             rail_link("compass", "Discover", "/"),
             rail_link("bookmark", "Saved", "/"),
             rail_link("circle-play", "Stories", "/"),
+            rail_link("gamepad-2", "Games", "/games", active == "games"),
+            rail_link(
+                "receipt-text",
+                "Transactions",
+                "/transactions",
+                active == "transactions",
+            ),
+            rail_link(
+                "settings", "Settings", "/settings", active == "settings"
+            ),
             rail_link("user", "Profile", "/profile", active == "profile"),
             class_name="mt-3 flex flex-col gap-1 rounded-2xl border border-slate-200 bg-white p-2",
         ),
@@ -73,8 +83,13 @@ def primary_rail(active: str = "home") -> rx.Component:
                 class_name="mt-1 text-2xl font-bold text-[#0D1420]",
             ),
             rx.el.p(
-                "Virtual only. No cash value.",
+                "Virtual only. No cash value, no purchase.",
                 class_name="text-xs text-slate-500",
+            ),
+            rx.el.a(
+                "Open transactions",
+                href="/transactions",
+                class_name="mt-1 block text-xs font-semibold text-[#1E9EF5]",
             ),
             class_name="mt-3 rounded-2xl border border-slate-200 bg-white p-3",
         ),

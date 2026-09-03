@@ -220,6 +220,12 @@ def mobile_nav() -> rx.Component:
             class_name="relative flex flex-1 flex-col items-center gap-0.5 py-2 text-slate-500",
         ),
         rx.el.a(
+            rx.icon("gamepad-2", class_name="h-5 w-5"),
+            rx.el.span("Games", class_name="text-[10px] font-semibold"),
+            href="/games",
+            class_name="flex flex-1 flex-col items-center gap-0.5 py-2 text-slate-500",
+        ),
+        rx.el.a(
             rx.icon("user", class_name="h-5 w-5"),
             rx.el.span("Profile", class_name="text-[10px] font-semibold"),
             href="/profile",
@@ -244,6 +250,12 @@ def header() -> rx.Component:
                 class_name="hidden md:flex flex-1 justify-center px-4",
             ),
             rx.el.div(
+                rx.el.a(
+                    rx.icon("gamepad-2", class_name="h-5 w-5 text-[#0D1420]"),
+                    href="/games",
+                    title="Games",
+                    class_name="hidden sm:flex size-10 items-center justify-center rounded-full bg-slate-50 hover:bg-sky-50",
+                ),
                 rx.el.a(
                     rx.icon("users", class_name="h-5 w-5 text-[#0D1420]"),
                     href="/friends",
