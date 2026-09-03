@@ -1,6 +1,0 @@
-{
-  "name": "TATA Social 2.0",
-  "description": "Stories, posts, threaded messaging, virtual TATA coin rewards, and real-time multiplayer Games Hub featuring Domino, Ludo, Bingo, and Faritany territory strategy.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
