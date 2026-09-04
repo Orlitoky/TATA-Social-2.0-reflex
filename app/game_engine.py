@@ -103,26 +103,124 @@ def loto_card_progress(
 # ---------------------------------------------------------------------------
 
 
-def domino_initial_state(order: list[int], rules: dict) -> dict:
-    rng = random.Random()
+DOMINO_MODES = ("classic", "rush_auto", "rush_manual", "draw")
+DOMINO_MODE_LABELS = {
+    "classic": "Classique",
+    "rush_auto": "Rush Auto",
+    "rush_manual": "Rush Manuel",
+    "draw": "Pioche",
+}
+# Persisted per-mode turn cadence (seconds).
+DOMINO_TURN_SECONDS = {
+    "classic": 40,
+    "rush_auto": 10,
+    "rush_manual": 20,
+    "draw": 30,
+}
+
+
+def domino_mode(rules: dict) -> str:
+    mode = str(rules.get("game_mode", "classic"))
+    return mode if mode in DOMINO_MODES else "classic"
+
+
+def domino_mode_label(rules_or_mode: dict | str) -> str:
+    mode = (
+        domino_mode(rules_or_mode)
+        if isinstance(rules_or_mode, dict)
+        else str(rules_or_mode)
+    )
+    return DOMINO_MODE_LABELS.get(mode, "Classique")
+
+
+def domino_turn_seconds(rules: dict) -> int:
+    return DOMINO_TURN_SECONDS.get(domino_mode(rules), 40)
+
+
+def domino_target_score(rules: dict) -> int:
+    raw = (
+        rules.get("custom_score")
+        or rules.get("target_score")
+        or rules.get("maty")
+        or 50
+    )
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = 50
+    return max(20, min(500, value))
+
+
+def domino_is_bot(participant_id: int) -> bool:
+    """Bots are stable negative ids: they never have an account row."""
+    return int(participant_id) < 0
+
+
+def domino_deck(rules: dict) -> list[list[int]]:
     tiles = [[a, b] for a in range(7) for b in range(a, 7)]
     if rules.get("no_double_six"):
         tiles = [t for t in tiles if t != [6, 6]]
+    return tiles
+
+
+def domino_hand_size(rules: dict, players: int) -> int:
+    if domino_mode(rules) == "draw":
+        return 3
+    return 7 if players <= 2 else 6
+
+
+def domino_next(order: list[int], current: int) -> int:
+    if not order:
+        return 0
+    if current not in order:
+        return order[0]
+    return order[(order.index(current) + 1) % len(order)]
+
+
+def domino_starting_player(
+    hands: dict[str, list[list[int]]], order: list[int]
+) -> int:
+    """Strongest available double, else the highest tile; ties by seat."""
+    best: tuple[int, int, int, int] | None = None
+    winner = order[0] if order else 0
+    for seat, participant in enumerate(order):
+        for tile in hands.get(participant, []):
+            a, b = int(tile[0]), int(tile[1])
+            rank = (1 if a == b else 0, a + b, max(a, b), -seat)
+            if best is None or rank > best:
+                best = rank
+                winner = participant
+    return winner
+
+
+def domino_initial_state(
+    order: list[int],
+    rules: dict,
+    scores: dict[str, int] | None = None,
+) -> dict:
+    """Deal a fresh round; carried scores survive re-deals when supplied."""
+    rng = random.Random()
+    tiles = domino_deck(rules)
     rng.shuffle(tiles)
     hands: dict[str, list[list[int]]] = {}
-    per_hand = 7 if len(order) <= 2 else 6
-    for account_id in order:
-        hands[str(account_id)] = [tiles.pop() for _ in range(per_hand)]
+    per_hand = domino_hand_size(rules, len(order))
+    for participant in order:
+        hands[str(participant)] = [tiles.pop() for _ in range(per_hand)]
+    carried = {str(p): int((scores or {}).get(str(p), 0) or 0) for p in order}
     return {
         "phase": "playing",
+        "mode": domino_mode(rules),
+        "order": [int(p) for p in order],
         "hands": hands,
         "boneyard": tiles,
         "chain": [],
         "ends": [-1, -1],
-        "turn": order[0],
-        "scores": {str(a): 0 for a in order},
+        "turn": domino_starting_player(hands, order),
+        "scores": carried,
+        "target": domino_target_score(rules),
         "round": 1,
         "passes": 0,
+        "extra_turn": False,
         "last": "",
     }
 
@@ -133,10 +231,71 @@ def _domino_playable(tile: list[int], ends: list[int]) -> bool:
     return ends[0] in tile or ends[1] in tile
 
 
-def domino_place(state: dict, actor: int, index: int, side: str) -> dict:
+def domino_legal_moves(state: dict, actor: int) -> list[tuple[int, str]]:
+    """Every legal (hand index, side) pair for this participant."""
+    ends = [int(e) for e in state.get("ends", [-1, -1])]
+    hand = state.get("hands", {}).get(str(actor), [])
+    moves: list[tuple[int, str]] = []
+    for index, raw in enumerate(hand):
+        tile = [int(raw[0]), int(raw[1])]
+        if ends[0] < 0:
+            moves.append((index, "right"))
+            continue
+        if ends[0] in tile:
+            moves.append((index, "left"))
+        if ends[1] in tile:
+            moves.append((index, "right"))
+    return moves
+
+
+def domino_auto_choice(state: dict, actor: int) -> tuple[int, str] | None:
+    """Deterministic legal placement used by bots and auto modes."""
+    moves = domino_legal_moves(state, actor)
+    if not moves:
+        return None
+    hand = state.get("hands", {}).get(str(actor), [])
+
+    def rank(move: tuple[int, str]) -> tuple[int, int, int, int]:
+        tile = hand[move[0]]
+        a, b = int(tile[0]), int(tile[1])
+        return (
+            -(a + b),
+            0 if a == b else 1,
+            move[0],
+            0 if move[1] == "left" else 1,
+        )
+
+    return sorted(moves, key=rank)[0]
+
+
+def domino_grants_extra_turn(rules: dict, tile: list[int]) -> bool:
+    """whiteOneBonus: the [1|0] tile gives its actor one extra turn."""
+    if not rules.get("one_on_blank"):
+        return False
+    return sorted(int(v) for v in tile) == [0, 1]
+
+
+def domino_place(
+    state: dict,
+    actor: int,
+    index: int,
+    side: str,
+    rules: dict | None = None,
+) -> dict:
     hand = list(state["hands"].get(str(actor), []))
     if index < 0 or index >= len(hand):
         raise MoveError("Tuile introuvable.")
+    if side not in ("left", "right"):
+        auto = domino_auto_choice(state, actor)
+        if auto is None or auto[0] != index:
+            legal = [
+                m for m in domino_legal_moves(state, actor) if m[0] == index
+            ]
+            if not legal:
+                raise MoveError("Cette tuile n'est pas jouable.")
+            side = legal[0][1]
+        else:
+            side = auto[1]
     tile = list(hand[index])
     ends = list(state["ends"])
     chain = list(state["chain"])
@@ -169,6 +328,7 @@ def domino_place(state: dict, actor: int, index: int, side: str) -> dict:
     new_state["chain"] = chain
     new_state["ends"] = ends
     new_state["passes"] = 0
+    new_state["extra_turn"] = domino_grants_extra_turn(rules or {}, tile)
     new_state["last"] = f"pose {tile[0]}-{tile[1]}"
     return new_state
 
@@ -183,8 +343,48 @@ def domino_draw(state: dict, actor: int) -> dict:
     new_state = dict(state)
     new_state["hands"] = hands
     new_state["boneyard"] = boneyard
+    new_state["extra_turn"] = False
     new_state["last"] = "pioche"
     return new_state
+
+
+def domino_pass(state: dict, actor: int) -> dict:
+    if domino_can_play(state, actor):
+        raise MoveError("Vous pouvez encore jouer.")
+    if state.get("boneyard"):
+        raise MoveError("Piochez avant de passer votre tour.")
+    new_state = dict(state)
+    new_state["passes"] = int(state.get("passes", 0)) + 1
+    new_state["extra_turn"] = False
+    new_state["last"] = "passe"
+    return new_state
+
+
+def domino_bot_turn(state: dict, actor: int, rules: dict) -> tuple[dict, str]:
+    """Play one complete bot turn: place, else draw, else pass."""
+    working = dict(state)
+    for _ in range(30):
+        choice = domino_auto_choice(working, actor)
+        if choice is not None:
+            tile = list(working["hands"][str(actor)][choice[0]])
+            working = domino_place(working, actor, choice[0], choice[1], rules)
+            return working, f"bot pose {tile[0]}-{tile[1]}"
+        if working.get("boneyard"):
+            working = domino_draw(working, actor)
+            continue
+        break
+    working = dict(working)
+    working["passes"] = int(working.get("passes", 0)) + 1
+    working["extra_turn"] = False
+    working["last"] = "bot passe"
+    return working, "bot passe"
+
+
+def domino_round_over(state: dict, order: list[int]) -> bool:
+    hands = state.get("hands", {})
+    if any(len(hands.get(p, [])) == 0 for p in order):
+        return True
+    return int(state.get("passes", 0)) >= max(1, len(order))
 
 
 def domino_can_play(state: dict, actor: int) -> bool:

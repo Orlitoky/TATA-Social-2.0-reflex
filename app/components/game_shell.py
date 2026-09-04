@@ -43,6 +43,7 @@ def jewel_tag(label: str | rx.Var, tone: str = "cyan") -> rx.Component:
         "emerald": "bg-emerald-500/15 text-emerald-300 ring-emerald-400/30",
         "ruby": "bg-rose-500/15 text-rose-300 ring-rose-400/30",
         "violet": "bg-indigo-500/15 text-indigo-300 ring-indigo-400/30",
+        "blue": "bg-blue-500/15 text-blue-300 ring-blue-400/30",
     }
     return rx.el.span(
         label,

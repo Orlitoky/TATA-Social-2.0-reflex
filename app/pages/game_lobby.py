@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import reflex as rx
 
+from app.components.domino_create import create_game_modal
 from app.components.game_shell import dark_page, jewel_tag, medallion
 from app.states.games_state import GamesState, RoomRow
 
@@ -189,7 +190,7 @@ def domino_options() -> rx.Component:
 
 def create_form() -> rx.Component:
     return rx.cond(
-        GamesState.create_open,
+        GamesState.create_open & ~GamesState.is_domino,
         rx.el.div(
             rx.el.div(
                 rx.el.div(
@@ -300,7 +301,11 @@ def lobby_body() -> rx.Component:
             rx.el.button(
                 rx.icon("plus", class_name="h-4 w-4"),
                 "Creer une salle",
-                on_click=GamesState.toggle_create,
+                on_click=rx.cond(
+                    GamesState.is_domino,
+                    GamesState.open_domino_sheet,
+                    GamesState.toggle_create,
+                ),
                 class_name=(
                     "flex items-center gap-2 rounded-xl bg-emerald-500 px-4 "
                     "py-2.5 text-xs font-black text-black "
@@ -344,6 +349,7 @@ def lobby_body() -> rx.Component:
             ),
         ),
         create_form(),
+        rx.cond(GamesState.is_domino, create_game_modal(), rx.fragment()),
         class_name="flex w-full flex-col gap-4",
     )
 

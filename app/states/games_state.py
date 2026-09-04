@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 from typing import Any, TypedDict
 
 import reflex as rx
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.games_catalog import CATALOG, LOTO_TIERS, MATY_TARGETS, game_by_slug
 from app.security import hash_password
@@ -59,6 +61,86 @@ class GamesState(rx.State):
     create_open: bool = False
     join_code: str = ""
     referral_open: bool = False
+
+    # ---- Domino "Creer une partie" bottom sheet draft -------------------
+    domino_sheet_open: bool = False
+    domino_creating: bool = False
+    draft_mode: str = "classic"
+    draft_score_choice: str = "50"
+    draft_custom_score: str = ""
+    draft_players: int = 2
+    draft_no_double_six: bool = False
+    draft_one_on_blank: bool = False
+    draft_fill_with_bots: bool = True
+    draft_error: str = ""
+
+    domino_modes: list[dict[str, str]] = [
+        {
+            "key": "classic",
+            "label": "Classique",
+            "hint": "standard",
+            "icon": "grip",
+        },
+        {
+            "key": "rush_auto",
+            "label": "Rush Auto",
+            "hint": "coups auto",
+            "icon": "zap",
+        },
+        {
+            "key": "rush_manual",
+            "label": "Rush Manuel",
+            "hint": "tu choisis",
+            "icon": "hand",
+        },
+        {
+            "key": "draw",
+            "label": "Pioche",
+            "hint": "3 dominos",
+            "icon": "layers",
+        },
+    ]
+    domino_scores: list[dict[str, str]] = [
+        {"key": "50", "label": "50"},
+        {"key": "80", "label": "80"},
+        {"key": "100", "label": "100"},
+        {"key": "120", "label": "120"},
+        {"key": "custom", "label": "Libre"},
+    ]
+    domino_rules: list[dict[str, str]] = [
+        {
+            "key": "no_double_six",
+            "label": "Sans Double-Six",
+            "hint": "Le 6|6 est retire du jeu",
+            "icon": "dice-6",
+        },
+        {
+            "key": "one_on_blank",
+            "label": "Un sur Blanc",
+            "hint": "Le 1 peut se poser sur un blanc",
+            "icon": "circle-dashed",
+        },
+        {
+            "key": "fill_with_bots",
+            "label": "Completer avec des bots",
+            "hint": "Sieges vides remplis par le serveur",
+            "icon": "bot",
+        },
+    ]
+
+    @rx.var
+    def draft_is_custom_score(self) -> bool:
+        return self.draft_score_choice == "custom"
+
+    @rx.var
+    def draft_score_summary(self) -> str:
+        if self.draft_score_choice == "custom":
+            return (
+                f"{self.draft_custom_score} points"
+                if self.draft_custom_score
+                else "Score libre"
+            )
+        return f"{self.draft_score_choice} points"
 
     tier_options: list[dict[str, str]] = [
         {
@@ -367,6 +449,247 @@ class GamesState(rx.State):
         self.create_open = not self.create_open
         self.error = ""
 
+    # ------------------------------------------------- domino draft events
+    def _reset_domino_draft(self) -> None:
+        self.draft_mode = "classic"
+        self.draft_score_choice = "50"
+        self.draft_custom_score = ""
+        self.draft_players = 2
+        self.draft_no_double_six = False
+        self.draft_one_on_blank = False
+        self.draft_fill_with_bots = True
+        self.draft_error = ""
+        self.domino_creating = False
+
+    @rx.event
+    def open_domino_sheet(self):
+        self._reset_domino_draft()
+        self.error = ""
+        self.domino_sheet_open = True
+
+    @rx.event
+    def cancel_domino_sheet(self):
+        """Close without creating anything and fully reset the draft."""
+        self.domino_sheet_open = False
+        self._reset_domino_draft()
+
+    @rx.event
+    def set_draft_mode(self, key: str):
+        if key in {"classic", "rush_auto", "rush_manual", "draw"}:
+            self.draft_mode = key
+            self.draft_error = ""
+
+    @rx.event
+    def set_draft_score_choice(self, key: str):
+        self.draft_score_choice = key
+        self.draft_error = ""
+        if key != "custom":
+            self.draft_custom_score = ""
+
+    @rx.event
+    def set_draft_custom_score(self, value: str):
+        self.draft_custom_score = "".join(c for c in value if c.isdigit())[:3]
+        self.draft_error = ""
+
+    @rx.event
+    def set_draft_players(self, count: int):
+        if count in (2, 3):
+            self.draft_players = count
+            self.draft_error = ""
+
+    @rx.event
+    def toggle_draft_rule(self, key: str):
+        if key == "no_double_six":
+            self.draft_no_double_six = not self.draft_no_double_six
+        elif key == "one_on_blank":
+            self.draft_one_on_blank = not self.draft_one_on_blank
+        elif key == "fill_with_bots":
+            self.draft_fill_with_bots = not self.draft_fill_with_bots
+        self.draft_error = ""
+
+    @rx.var
+    def draft_rule_values(self) -> dict[str, bool]:
+        return {
+            "no_double_six": self.draft_no_double_six,
+            "one_on_blank": self.draft_one_on_blank,
+            "fill_with_bots": self.draft_fill_with_bots,
+        }
+
+    def _resolve_draft_score(self) -> tuple[int, str]:
+        """Return (target_score, error_message)."""
+        if self.draft_score_choice == "custom":
+            raw = self.draft_custom_score.strip()
+            if not raw:
+                return 0, "Entrez un score personnalise pour le mode Libre."
+            if not raw.isdigit():
+                return 0, "Le score doit contenir uniquement des chiffres."
+            value = int(raw)
+            if value < 20 or value > 500:
+                return 0, "Le score libre doit etre compris entre 20 et 500."
+            return value, ""
+        return int(self.draft_score_choice), ""
+
+    @rx.event
+    async def create_domino_room(self):
+        """Persist a waiting domino room + host membership in one transaction."""
+        auth = await self.get_state(AuthState)
+        if not auth.account_id:
+            self.draft_error = "Connectez-vous pour creer une partie."
+            yield rx.toast("Connectez-vous pour creer une partie.")
+            return
+        target_score, message = self._resolve_draft_score()
+        if message:
+            self.draft_error = message
+            return
+        if self.draft_players not in (2, 3):
+            self.draft_error = "Choisissez 2 ou 3 joueurs."
+            return
+        if self.domino_creating:
+            return
+        self.domino_creating = True
+        self.draft_error = ""
+        yield
+
+        catalog = game_by_slug("domino")
+        rules = {
+            "game_mode": self.draft_mode,
+            "target_score": target_score,
+            "custom_score": target_score
+            if self.draft_score_choice == "custom"
+            else None,
+            "number_of_players": self.draft_players,
+            "no_double_six": self.draft_no_double_six,
+            "one_on_blank": self.draft_one_on_blank,
+            "fill_with_bots": self.draft_fill_with_bots,
+            "game_state": "waiting",
+            "maty": target_score,
+        }
+        entry = int(catalog["default_entry_coins"])
+        room_id = 0
+        try:
+            async with rx.asession() as asession:
+                game_row = (
+                    await asession.execute(
+                        text("SELECT id FROM game WHERE slug = 'domino'")
+                    )
+                ).first()
+                if game_row is None:
+                    self.domino_creating = False
+                    self.draft_error = "Jeu Domino introuvable."
+                    return
+                for _ in range(8):
+                    code = secrets.token_hex(4).upper()
+                    taken = (
+                        await asession.execute(
+                            text(
+                                "SELECT 1 FROM game_room WHERE code = :c "
+                                "LIMIT 1"
+                            ),
+                            {"c": code},
+                        )
+                    ).first()
+                    if taken is not None:
+                        continue
+                    inserted = (
+                        await asession.execute(
+                            text(
+                                """
+                                INSERT INTO game_room (game_id, host_id, code,
+                                    name, status, is_private, password_hash,
+                                    max_players, player_count, entry_coins,
+                                    rules_json, state_json, round_number,
+                                    pot_coins, state_version, created_at,
+                                    updated_at)
+                                VALUES (:g, :h, :code, :name, 'waiting',
+                                    false, '', :max_players, 1, :entry,
+                                    :rules, '{}', 0, 0, 0, NOW(), NOW())
+                                RETURNING id
+                                """
+                            ),
+                            {
+                                "g": int(game_row[0]),
+                                "h": auth.account_id,
+                                "code": code,
+                                "name": f"Domino de {auth.display_name}",
+                                "max_players": self.draft_players,
+                                "entry": entry,
+                                "rules": json.dumps(rules),
+                            },
+                        )
+                    ).first()
+                    room_id = int(inserted[0])
+                    break
+                if not room_id:
+                    await asession.rollback()
+                    self.domino_creating = False
+                    self.draft_error = (
+                        "Impossible de generer un code de salle unique. "
+                        "Reessayez."
+                    )
+                    return
+                await asession.execute(
+                    text(
+                        """
+                        INSERT INTO game_room_member (room_id, account_id,
+                            seat, is_host, is_ready, score, result, joined_at)
+                        VALUES (:r, :a, 0, true, false, 0, '', NOW())
+                        """
+                    ),
+                    {"r": room_id, "a": auth.account_id},
+                )
+                if entry > 0:
+                    ok, pay_message, _ = await move_coins(
+                        asession,
+                        auth.account_id,
+                        -entry,
+                        "game_entry",
+                        f"Entree salle #{room_id}",
+                        room_id,
+                        f"entry:{room_id}:{auth.account_id}",
+                    )
+                    if not ok:
+                        await asession.rollback()
+                        self.domino_creating = False
+                        self.draft_error = (
+                            pay_message or "Points internes insuffisants."
+                        )
+                        return
+                    await asession.execute(
+                        text(
+                            "UPDATE game_room SET pot_coins = :e WHERE id = :r"
+                        ),
+                        {"e": entry, "r": room_id},
+                    )
+                await asession.execute(
+                    text(
+                        """
+                        INSERT INTO game_room_event (room_id, account_id,
+                            event_type, detail, created_at)
+                        VALUES (:r, :a, 'join', :d, NOW())
+                        """
+                    ),
+                    {
+                        "r": room_id,
+                        "a": auth.account_id,
+                        "d": f"{auth.display_name} a cree la partie",
+                    },
+                )
+                await asession.commit()
+                balance = await balance_of(asession, auth.account_id)
+            auth.coin_balance = balance
+        except SQLAlchemyError as exc:
+            logging.exception(f"Error: {exc}")
+            self.domino_creating = False
+            self.draft_error = (
+                "La creation a echoue. Verifiez votre connexion et reessayez."
+            )
+            yield rx.toast("La creation de la partie a echoue.")
+            return
+        self.domino_sheet_open = False
+        self._reset_domino_draft()
+        yield rx.toast("Partie creee. Bienvenue dans la salle d'attente.")
+        yield rx.redirect(f"/game/room/{room_id}")
+
     @rx.event
     def toggle_referral(self):
         self.referral_open = not self.referral_open
@@ -491,7 +814,7 @@ class GamesState(rx.State):
 
     @rx.event
     async def join_room(self, room_id: int, secret: str):
-        """Capacity + private code validation, atomic entry debit, membership."""
+        """Locked, capacity-safe join with single entry debit and clear toasts."""
         auth = await self.get_state(AuthState)
         if not auth.account_id:
             return rx.redirect("/login")
@@ -503,9 +826,9 @@ class GamesState(rx.State):
                         """
                         SELECT r.status, r.is_private, r.password_hash,
                                r.max_players, r.player_count, r.entry_coins,
-                               g.slug, r.host_id
+                               g.slug, r.host_id, r.rules_json
                         FROM game_room r JOIN game g ON g.id = r.game_id
-                        WHERE r.id = :id FOR UPDATE
+                        WHERE r.id = :id FOR UPDATE OF r
                         """
                     ),
                     {"id": room_id},
@@ -515,27 +838,71 @@ class GamesState(rx.State):
                 return rx.toast("Salle introuvable.")
             status = str(room[0])
             if status in ("finished", "closed"):
-                return rx.toast("Cette salle est terminee.")
+                return rx.toast("Cette salle est terminee ou fermee.")
             member = (
                 await asession.execute(
                     text(
                         "SELECT id, left_at FROM game_room_member "
-                        "WHERE room_id = :r AND account_id = :a"
+                        "WHERE room_id = :r AND account_id = :a "
+                        "ORDER BY id LIMIT 1"
                     ),
                     {"r": room_id, "a": me},
                 )
             ).first()
             already = member is not None and member[1] is None
-            if not already:
-                if int(room[4] or 0) >= int(room[3] or 0):
-                    return rx.toast("Salle complete.")
-                if bool(room[1]):
-                    from app.security import verify_password
+            if already:
+                # Duplicate active membership is impossible: just resume.
+                await asession.commit()
+                return rx.redirect(f"/game/room/{room_id}")
+            if status in ("active", "in_progress"):
+                return rx.toast(
+                    "La partie a deja commence: impossible de rejoindre."
+                )
 
-                    if not secret or not verify_password(secret, str(room[2])):
-                        return rx.toast("Code de salle invalide.")
-                entry = int(room[5] or 0)
-                if entry > 0 and str(room[6]) != "loto":
+            try:
+                rules = json.loads(str(room[8]) or "{}")
+            except ValueError:
+                rules = {}
+            capacity = int(room[3] or 0)
+            wanted = rules.get("number_of_players")
+            if wanted:
+                try:
+                    capacity = min(capacity, int(wanted))
+                except (TypeError, ValueError):
+                    pass
+            seats = (
+                await asession.execute(
+                    text(
+                        "SELECT seat FROM game_room_member "
+                        "WHERE room_id = :r AND left_at IS NULL"
+                    ),
+                    {"r": room_id},
+                )
+            ).all()
+            taken = {int(s[0] or 0) for s in seats}
+            if len(taken) >= capacity:
+                return rx.toast("Salle complete: tous les sieges sont occupes.")
+            if bool(room[1]):
+                from app.security import verify_password
+
+                if not secret or not verify_password(secret, str(room[2])):
+                    return rx.toast("Salle privee: code d'acces invalide.")
+            free_seat = 0
+            while free_seat in taken:
+                free_seat += 1
+
+            entry = int(room[5] or 0)
+            if entry > 0 and str(room[6]) != "loto":
+                paid = (
+                    await asession.execute(
+                        text(
+                            "SELECT 1 FROM coin_ledger_entry "
+                            "WHERE idempotency_key = :k LIMIT 1"
+                        ),
+                        {"k": f"entry:{room_id}:{me}"},
+                    )
+                ).first()
+                if paid is None:
                     ok, message, _ = await move_coins(
                         asession,
                         me,
@@ -545,70 +912,72 @@ class GamesState(rx.State):
                         room_id,
                         f"entry:{room_id}:{me}",
                     )
-                    if not ok and message:
-                        return rx.toast(message)
-                    if ok:
-                        await asession.execute(
-                            text(
-                                "UPDATE game_room SET pot_coins = "
-                                "pot_coins + :e WHERE id = :r"
-                            ),
-                            {"e": entry, "r": room_id},
+                    if not ok:
+                        await asession.rollback()
+                        return rx.toast(
+                            message or "Points internes insuffisants."
                         )
-                if member is None:
                     await asession.execute(
                         text(
-                            """
-                            INSERT INTO game_room_member (room_id, account_id,
-                                seat, is_host, is_ready, score, result,
-                                joined_at)
-                            VALUES (:r, :a, :seat, :host, false, 0, '', NOW())
-                            """
+                            "UPDATE game_room SET pot_coins = "
+                            "pot_coins + :e WHERE id = :r"
                         ),
-                        {
-                            "r": room_id,
-                            "a": me,
-                            "seat": int(room[4] or 0),
-                            "host": int(room[7]) == me,
-                        },
+                        {"e": entry, "r": room_id},
                     )
-                else:
-                    await asession.execute(
-                        text(
-                            "UPDATE game_room_member SET left_at = NULL "
-                            "WHERE id = :id"
-                        ),
-                        {"id": int(member[0])},
-                    )
+            if member is None:
                 await asession.execute(
                     text(
                         """
-                        UPDATE game_room
-                        SET player_count = (
-                            SELECT COUNT(*) FROM game_room_member
-                            WHERE room_id = :r AND left_at IS NULL),
-                            status = CASE WHEN status = 'open'
-                                THEN 'waiting' ELSE status END,
-                            updated_at = NOW()
-                        WHERE id = :r
-                        """
-                    ),
-                    {"r": room_id},
-                )
-                await asession.execute(
-                    text(
-                        """
-                        INSERT INTO game_room_event (room_id, account_id,
-                            event_type, detail, created_at)
-                        VALUES (:r, :a, 'join', :d, NOW())
+                        INSERT INTO game_room_member (room_id, account_id,
+                            seat, is_host, is_ready, score, result,
+                            joined_at)
+                        VALUES (:r, :a, :seat, :host, false, 0, '', NOW())
                         """
                     ),
                     {
                         "r": room_id,
                         "a": me,
-                        "d": f"{auth.display_name} a rejoint la salle",
+                        "seat": free_seat,
+                        "host": int(room[7]) == me,
                     },
                 )
+            else:
+                await asession.execute(
+                    text(
+                        "UPDATE game_room_member SET left_at = NULL, "
+                        "is_ready = false, seat = :seat WHERE id = :id"
+                    ),
+                    {"id": int(member[0]), "seat": free_seat},
+                )
+            await asession.execute(
+                text(
+                    """
+                    UPDATE game_room
+                    SET player_count = (
+                        SELECT COUNT(*) FROM game_room_member
+                        WHERE room_id = :r AND left_at IS NULL),
+                        status = CASE WHEN status = 'open'
+                            THEN 'waiting' ELSE status END,
+                        updated_at = NOW()
+                    WHERE id = :r
+                    """
+                ),
+                {"r": room_id},
+            )
+            await asession.execute(
+                text(
+                    """
+                    INSERT INTO game_room_event (room_id, account_id,
+                        event_type, detail, created_at)
+                    VALUES (:r, :a, 'join', :d, NOW())
+                    """
+                ),
+                {
+                    "r": room_id,
+                    "a": me,
+                    "d": f"{auth.display_name} a rejoint la salle",
+                },
+            )
             await asession.commit()
             balance = await balance_of(asession, me)
         auth.coin_balance = balance

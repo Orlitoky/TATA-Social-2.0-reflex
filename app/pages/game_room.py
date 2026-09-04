@@ -11,6 +11,7 @@ from app.components.boards import (
     panel,
     section_title,
 )
+from app.components.game_lobby import game_lobby
 from app.components.game_shell import dark_page, jewel_tag
 from app.components.ui import avatar
 from app.states.room_state import ActivityRow, PlayerRow, ReactionRow, RoomState
@@ -352,7 +353,12 @@ def room_body() -> rx.Component:
             rx.fragment(),
         ),
         rx.cond(
-            RoomState.loaded,
+            RoomState.loaded & RoomState.is_domino_lobby,
+            game_lobby(),
+            rx.fragment(),
+        ),
+        rx.cond(
+            RoomState.loaded & ~RoomState.is_domino_lobby,
             rx.el.div(
                 room_head(),
                 rx.el.div(
@@ -424,6 +430,11 @@ def room_body() -> rx.Component:
                 ),
                 class_name="w-full",
             ),
+            rx.fragment(),
+        ),
+        rx.cond(
+            RoomState.loaded,
+            rx.fragment(),
             rx.el.div(
                 rx.el.div(
                     class_name="h-24 animate-pulse rounded-2xl bg-zinc-900"

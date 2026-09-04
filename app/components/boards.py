@@ -358,28 +358,51 @@ def domino_tile(tile: TileRow, in_hand: bool = False) -> rx.Component:
 def domino_hand_tile(tile: TileRow) -> rx.Component:
     return rx.el.div(
         domino_tile(tile, True),
-        rx.el.div(
-            rx.el.button(
-                "G",
-                on_click=lambda: RoomState.domino_play(tile["index"], "left"),
-                aria_label="Poser a gauche",
-                class_name=(
-                    "flex-1 rounded-l-md bg-zinc-800 py-1 text-[10px] "
-                    "font-bold text-zinc-200 hover:bg-emerald-500 "
-                    "hover:text-black"
+        rx.cond(
+            RoomState.domino_is_rush_auto,
+            rx.el.div(
+                rx.el.button(
+                    "AUTO",
+                    on_click=lambda: RoomState.domino_auto_play(tile["index"]),
+                    disabled=~RoomState.my_turn,
+                    aria_label="Poser automatiquement",
+                    class_name=(
+                        "w-full rounded-md bg-amber-400 py-1 text-[9px] "
+                        "font-black text-black hover:bg-amber-300 "
+                        "disabled:opacity-40"
+                    ),
                 ),
+                class_name="mt-1 flex w-[38px]",
             ),
-            rx.el.button(
-                "D",
-                on_click=lambda: RoomState.domino_play(tile["index"], "right"),
-                aria_label="Poser a droite",
-                class_name=(
-                    "flex-1 rounded-r-md bg-zinc-800 py-1 text-[10px] "
-                    "font-bold text-zinc-200 hover:bg-emerald-500 "
-                    "hover:text-black"
+            rx.el.div(
+                rx.el.button(
+                    "G",
+                    on_click=lambda: RoomState.domino_play(
+                        tile["index"], "left"
+                    ),
+                    disabled=~RoomState.my_turn,
+                    aria_label="Poser a gauche",
+                    class_name=(
+                        "flex-1 rounded-l-md bg-zinc-800 py-1 text-[10px] "
+                        "font-bold text-zinc-200 hover:bg-emerald-500 "
+                        "hover:text-black disabled:opacity-40"
+                    ),
                 ),
+                rx.el.button(
+                    "D",
+                    on_click=lambda: RoomState.domino_play(
+                        tile["index"], "right"
+                    ),
+                    disabled=~RoomState.my_turn,
+                    aria_label="Poser a droite",
+                    class_name=(
+                        "flex-1 rounded-r-md bg-zinc-800 py-1 text-[10px] "
+                        "font-bold text-zinc-200 hover:bg-emerald-500 "
+                        "hover:text-black disabled:opacity-40"
+                    ),
+                ),
+                class_name="mt-1 flex w-[38px] gap-px",
             ),
-            class_name="mt-1 flex w-[38px] gap-px",
         ),
         class_name=rx.cond(
             tile["playable"],
@@ -407,9 +430,17 @@ def domino_board() -> rx.Component:
     return rx.el.div(
         panel(
             rx.el.div(
+                jewel_tag(RoomState.domino_mode_name, "blue"),
                 jewel_tag(f"Maty {RoomState.maty_target}", "gold"),
                 jewel_tag(RoomState.domino_variants, "violet"),
                 jewel_tag(f"Pioche {RoomState.boneyard_count}", "cyan"),
+                rx.cond(
+                    RoomState.domino_bot_count > 0,
+                    jewel_tag(
+                        f"{RoomState.domino_bot_count} bot(s)", "emerald"
+                    ),
+                    rx.fragment(),
+                ),
                 class_name="mb-3 flex flex-wrap gap-2",
             ),
             rx.el.div(

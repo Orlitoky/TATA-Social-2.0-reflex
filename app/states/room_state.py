@@ -42,6 +42,18 @@ class PlayerRow(TypedDict):
     hearts: int
 
 
+class LobbySlot(TypedDict):
+    seat: int
+    kind: str
+    name: str
+    avatar_url: str
+    avatar_remote: bool
+    is_host: bool
+    is_online: bool
+    is_ready: bool
+    is_me: bool
+
+
 class ActivityRow(TypedDict):
     id: int
     text: str
@@ -180,6 +192,9 @@ class RoomState(rx.State):
     my_card_count: int = 0
 
     # DOMINO
+    domino_mode_name: str = "Classique"
+    domino_mode_key: str = "classic"
+    domino_bot_count: int = 0
     my_tiles: list[TileRow] = []
     chain: list[TileRow] = []
     left_end: int = -1
@@ -214,6 +229,18 @@ class RoomState(rx.State):
     has_drawn: bool = False
     melds: list[MeldRow] = []
 
+    # DOMINO LOBBY (waiting room)
+    lobby_slots: list[LobbySlot] = []
+    lobby_mode: str = "classic"
+    lobby_target_score: int = 50
+    lobby_target_players: int = 2
+    lobby_special_rules: list[str] = []
+    lobby_fill_bots: bool = False
+    lobby_occupied: int = 0
+    lobby_bot_count: int = 0
+    lobby_host_name: str = ""
+    my_ready: bool = False
+
     # BILLARD
     balls: list[BallRow] = []
     aim_angle: int = 0
@@ -232,6 +259,51 @@ class RoomState(rx.State):
     @rx.var
     def is_finished(self) -> bool:
         return self.status == "finished"
+
+    @rx.var
+    def domino_is_rush_auto(self) -> bool:
+        return self.domino_mode_key == "rush_auto"
+
+    @rx.var
+    def is_domino_lobby(self) -> bool:
+        return self.slug == "domino" and self.status in ("open", "waiting")
+
+    @rx.var
+    def lobby_mode_label(self) -> str:
+        return {
+            "classic": "Classique",
+            "rush_auto": "Rush Auto",
+            "rush_manual": "Rush Manuel",
+            "draw": "Pioche",
+        }.get(self.lobby_mode, "Classique")
+
+    @rx.var
+    def lobby_free_seats(self) -> int:
+        return max(0, self.lobby_target_players - self.lobby_occupied)
+
+    @rx.var
+    def lobby_is_complete(self) -> bool:
+        return self.lobby_occupied >= self.lobby_target_players
+
+    @rx.var
+    def lobby_can_start(self) -> bool:
+        if not self.is_host:
+            return False
+        if self.lobby_occupied >= self.lobby_target_players:
+            return True
+        return self.lobby_fill_bots and self.lobby_occupied >= 1
+
+    @rx.var
+    def lobby_start_hint(self) -> str:
+        if self.lobby_occupied >= self.lobby_target_players:
+            return "Tous les sieges sont occupes."
+        missing = self.lobby_target_players - self.lobby_occupied
+        if self.lobby_fill_bots:
+            return (
+                f"{missing} siege(s) libre(s): le serveur les completera "
+                "avec des bots."
+            )
+        return f"En attente de {missing} joueur(s) pour lancer la partie."
 
     @rx.var
     def visible_reactions(self) -> list[ReactionRow]:
@@ -258,7 +330,8 @@ class RoomState(rx.State):
                            r.round_number, r.pot_coins, g.slug, r.host_id,
                            r.entry_coins, r.max_players, r.code, r.name,
                            g.name, r.is_private, r.winner_account_id, g.id,
-                           r.turn_deadline_at, r.settled_at, r.player_count
+                           r.turn_deadline_at, r.settled_at, r.player_count,
+                           r.created_at
                     FROM game_room r JOIN game g ON g.id = r.game_id
                     WHERE r.id = :id
                     """
@@ -346,6 +419,7 @@ class RoomState(rx.State):
         deadline_seconds: int | None = None,
         round_number: int | None = None,
         winner: int | None = None,
+        rules: dict | None = None,
         kind: str = "system",
         payload: dict[str, Any] | None = None,
         actor: int | None = None,
@@ -378,6 +452,9 @@ class RoomState(rx.State):
         if winner is not None:
             sets.append("winner_account_id = :winner")
             params["winner"] = winner
+        if rules is not None:
+            sets.append("rules_json = :rules")
+            params["rules"] = json.dumps(rules)
         result = await asession.execute(
             text(
                 "UPDATE game_room SET "
@@ -450,11 +527,12 @@ class RoomState(rx.State):
         ).first()
         if locked is not None and locked[0] is not None:
             return 0
+        payable = winner_id if winner_id > 0 else 0
         net = max(0, pot - (pot * FEE_PERCENT) // 100)
-        if net > 0 and winner_id:
+        if net > 0 and payable:
             await move_coins(
                 asession,
-                winner_id,
+                payable,
                 net,
                 "game_win",
                 f"Gain {label} (net, frais deduits)",
@@ -471,7 +549,7 @@ class RoomState(rx.State):
                 WHERE id = :id
                 """
             ),
-            {"w": winner_id or None, "id": room_id},
+            {"w": payable or None, "id": room_id},
         )
         await asession.execute(
             text(
@@ -480,8 +558,8 @@ class RoomState(rx.State):
             ),
             {"w": winner_id, "r": room_id},
         )
-        if winner_id:
-            await self._stats(asession, room_id, game_id, winner_id)
+        if payable:
+            await self._stats(asession, room_id, game_id, payable)
         await self._event(
             asession,
             room_id,
@@ -524,7 +602,39 @@ class RoomState(rx.State):
     async def manual_refresh(self):
         await self._refresh()
 
-    async def _refresh(self) -> None:
+    def _domino_bots(self, rules: dict) -> list[dict[str, str | int]]:
+        """Normalised bot metadata: stable negative ids + display names."""
+        result: list[dict[str, str | int]] = []
+        for position, raw in enumerate(rules.get("bots") or []):
+            if isinstance(raw, dict):
+                try:
+                    bot_id = int(raw.get("id", -(position + 1)))
+                except (TypeError, ValueError):
+                    bot_id = -(position + 1)
+                name = str(raw.get("name") or f"Bot {position + 1}")
+            else:
+                bot_id = -(position + 1)
+                name = str(raw) or f"Bot {position + 1}"
+            result.append({"id": bot_id, "name": name})
+        return result
+
+    def _domino_order(self, rules: dict, humans: list[int]) -> list[int]:
+        """Persisted participant order (humans + negative-id bots)."""
+        stored = []
+        for raw in rules.get("order") or []:
+            try:
+                stored.append(int(raw))
+            except (TypeError, ValueError):
+                continue
+        if not stored:
+            return list(humans)
+        order = [p for p in stored if p < 0 or p in humans]
+        for human in humans:
+            if human not in order:
+                order.append(human)
+        return order or list(humans)
+
+    async def _refresh(self, allow_bots: bool = True) -> None:
         auth = await self.get_state(AuthState)
         me = auth.account_id
         room_id = self.active_id or self._params_room_id()
@@ -645,7 +755,32 @@ class RoomState(rx.State):
                         "hearts": int(hearts.get(str(account_id), 3)),
                     }
                 )
+            if self.slug == "domino":
+                for bot in self._domino_bots(rules):
+                    bot_id = int(bot["id"])
+                    bot_name = str(bot["name"])
+                    players.append(
+                        {
+                            "account_id": bot_id,
+                            "name": bot_name,
+                            "avatar_url": (
+                                "https://api.dicebear.com/9.x/bottts/svg"
+                                f"?seed={bot_name}"
+                            ),
+                            "avatar_remote": True,
+                            "is_host": False,
+                            "is_ready": True,
+                            "is_online": True,
+                            "is_turn": bot_id == self.turn_account_id,
+                            "score": int(scores_state.get(str(bot_id), 0)),
+                            "cards": 0,
+                            "hand_count": len(hands.get(str(bot_id), [])),
+                            "color": "",
+                            "hearts": 3,
+                        }
+                    )
             self.players = players
+            self._build_lobby(rules, me)
             names = {p["account_id"]: p["name"] for p in players}
             self.turn_name = names.get(self.turn_account_id, "")
             winner_id = int(room[15] or 0)
@@ -731,6 +866,15 @@ class RoomState(rx.State):
 
             await self._build_view(asession, room_id, state, rules, me, order)
 
+        if (
+            allow_bots
+            and self.slug == "domino"
+            and self.status in ("active", "in_progress")
+            and self.turn_account_id < 0
+        ):
+            if await self._run_bots():
+                await self._refresh(allow_bots=False)
+
     # ------------------------------------------------- per-game view builder
     async def _build_view(
         self,
@@ -806,7 +950,10 @@ class RoomState(rx.State):
                 :24
             ]
         elif slug == "domino":
-            self.maty_target = int(rules.get("maty", 50))
+            self.maty_target = engine.domino_target_score(rules)
+            self.domino_mode_name = engine.domino_mode_label(rules)
+            self.domino_mode_key = engine.domino_mode(rules)
+            self.domino_bot_count = len(self._domino_bots(rules))
             variants = []
             if rules.get("no_double_six"):
                 variants.append("Sans Double-Six")
@@ -1086,6 +1233,148 @@ class RoomState(rx.State):
             grid.append(line)
         return grid
 
+    # ------------------------------------------------------- lobby projection
+    def _build_lobby(self, rules: dict, me: int) -> None:
+        """Project persisted room settings + members into lobby seat rows."""
+        self.lobby_mode = str(rules.get("game_mode", "classic"))
+        target_score = rules.get("target_score") or rules.get("maty") or 50
+        try:
+            self.lobby_target_score = int(target_score)
+        except (TypeError, ValueError):
+            self.lobby_target_score = 50
+        try:
+            wanted = int(
+                rules.get("number_of_players") or self.max_players or 2
+            )
+        except (TypeError, ValueError):
+            wanted = 2
+        self.lobby_target_players = 3 if wanted >= 3 else 2
+        specials: list[str] = []
+        if rules.get("no_double_six"):
+            specials.append("Sans Double-Six")
+        if rules.get("one_on_blank"):
+            specials.append("Un sur Blanc")
+        self.lobby_special_rules = specials
+        self.lobby_fill_bots = bool(rules.get("fill_with_bots"))
+
+        bots = [str(b["name"]) for b in self._domino_bots(rules)]
+        slots: list[LobbySlot] = []
+        humans = [p for p in self.players if p["account_id"] > 0][
+            : self.lobby_target_players
+        ]
+        for player in humans:
+            slots.append(
+                {
+                    "seat": len(slots) + 1,
+                    "kind": "player",
+                    "name": player["name"],
+                    "avatar_url": player["avatar_url"],
+                    "avatar_remote": player["avatar_remote"],
+                    "is_host": player["is_host"],
+                    "is_online": player["is_online"],
+                    "is_ready": player["is_ready"],
+                    "is_me": player["account_id"] == me,
+                }
+            )
+        bot_used = 0
+        for name in bots:
+            if len(slots) >= self.lobby_target_players:
+                break
+            bot_used += 1
+            slots.append(
+                {
+                    "seat": len(slots) + 1,
+                    "kind": "bot",
+                    "name": name or f"Bot {bot_used}",
+                    "avatar_url": "",
+                    "avatar_remote": False,
+                    "is_host": False,
+                    "is_online": True,
+                    "is_ready": True,
+                    "is_me": False,
+                }
+            )
+        planned = 0
+        while self.lobby_fill_bots and len(slots) < self.lobby_target_players:
+            planned += 1
+            slots.append(
+                {
+                    "seat": len(slots) + 1,
+                    "kind": "bot",
+                    "name": f"Bot {bot_used + planned}",
+                    "avatar_url": "",
+                    "avatar_remote": False,
+                    "is_host": False,
+                    "is_online": True,
+                    "is_ready": True,
+                    "is_me": False,
+                }
+            )
+        while len(slots) < self.lobby_target_players:
+            slots.append(
+                {
+                    "seat": len(slots) + 1,
+                    "kind": "empty",
+                    "name": "En attente...",
+                    "avatar_url": "",
+                    "avatar_remote": False,
+                    "is_host": False,
+                    "is_online": False,
+                    "is_ready": False,
+                    "is_me": False,
+                }
+            )
+        self.lobby_slots = slots
+        self.lobby_bot_count = bot_used
+        self.lobby_occupied = len(humans) + bot_used
+        self.lobby_host_name = next(
+            (p["name"] for p in self.players if p["is_host"]), ""
+        )
+        self.my_ready = any(
+            p["account_id"] == me and p["is_ready"] for p in self.players
+        )
+
+    # ---------------------------------------------------------------- sharing
+    @rx.var
+    def room_url(self) -> str:
+        return str(self.router.url)
+
+    @rx.event
+    def copy_code(self):
+        if not self.code:
+            return rx.toast("Code indisponible.")
+        yield rx.set_clipboard(self.code)
+        yield rx.toast(f"Code {self.code} copie.")
+
+    @rx.event
+    def invite_players(self):
+        url = str(self.router.url)
+        code = self.code
+        script = (
+            "(async () => {"
+            f'  const url = "{url}";'
+            f'  const code = "{code}";'
+            '  const text = "Rejoins ma partie Domino TATA (code " + code'
+            '    + ") - points internes uniquement, aucune valeur '
+            'monetaire.";'
+            "  try {"
+            "    if (navigator.share) {"
+            '      await navigator.share({title: "Domino TATA", '
+            "text: text, url: url});"
+            "      return;"
+            "    }"
+            "  } catch (e) {}"
+            "  try {"
+            '    await navigator.clipboard.writeText(text + " " + url);'
+            "  } catch (e) {}"
+            "})()"
+        )
+        yield rx.call_script(script)
+        yield rx.toast(
+            "Invitation prete: lien de la salle partage ou copie.",
+            duration=4000,
+        )
+
     # ---------------------------------------------------------- room actions
     @rx.event
     async def toggle_ready(self):
@@ -1110,38 +1399,92 @@ class RoomState(rx.State):
 
     @rx.event
     async def leave_room(self):
+        """Leave safely: a waiting host closes the room, never orphaning it."""
         auth = await self.get_state(AuthState)
+        me = auth.account_id
+        room_id = self.active_id
+        slug = self.slug or "domino"
+        closed = False
         async with rx.asession() as asession:
-            await asession.execute(
-                text(
-                    "UPDATE game_room_member SET left_at = NOW() "
-                    "WHERE room_id = :r AND account_id = :a "
-                    "AND left_at IS NULL"
-                ),
-                {"r": self.active_id, "a": auth.account_id},
-            )
-            await asession.execute(
-                text(
-                    """
-                    UPDATE game_room SET player_count = (
-                        SELECT COUNT(*) FROM game_room_member
-                        WHERE room_id = :r AND left_at IS NULL),
-                        updated_at = NOW()
-                    WHERE id = :r
-                    """
-                ),
-                {"r": self.active_id},
-            )
-            await self._event(
-                asession,
-                self.active_id,
-                "leave",
-                f"{auth.display_name} a quitte la salle",
-                auth.account_id,
-            )
+            room = (
+                await asession.execute(
+                    text(
+                        "SELECT status, host_id FROM game_room "
+                        "WHERE id = :r FOR UPDATE"
+                    ),
+                    {"r": room_id},
+                )
+            ).first()
+            if room is None:
+                self.polling = False
+                yield rx.toast("Cette salle n'existe plus.")
+                yield rx.redirect(f"/games/{slug}")
+                return
+            status = str(room[0])
+            host_leaving = int(room[1] or 0) == me
+            waiting = status in ("open", "waiting")
+            if waiting and host_leaving:
+                await asession.execute(
+                    text(
+                        "UPDATE game_room_member SET left_at = NOW() "
+                        "WHERE room_id = :r AND left_at IS NULL"
+                    ),
+                    {"r": room_id},
+                )
+                await asession.execute(
+                    text(
+                        "UPDATE game_room SET status = 'closed', "
+                        "player_count = 0, updated_at = NOW() "
+                        "WHERE id = :r"
+                    ),
+                    {"r": room_id},
+                )
+                await self._event(
+                    asession,
+                    room_id,
+                    "leave",
+                    f"{auth.display_name} (hote) a ferme la salle d'attente",
+                    me,
+                )
+                closed = True
+            else:
+                await asession.execute(
+                    text(
+                        "UPDATE game_room_member SET left_at = NOW(), "
+                        "is_ready = false "
+                        "WHERE room_id = :r AND account_id = :a "
+                        "AND left_at IS NULL"
+                    ),
+                    {"r": room_id, "a": me},
+                )
+                await asession.execute(
+                    text(
+                        """
+                        UPDATE game_room SET player_count = (
+                            SELECT COUNT(*) FROM game_room_member
+                            WHERE room_id = :r AND left_at IS NULL),
+                            updated_at = NOW()
+                        WHERE id = :r
+                        """
+                    ),
+                    {"r": room_id},
+                )
+                detail = (
+                    f"{auth.display_name} a quitte la partie en cours"
+                    if not waiting
+                    else f"{auth.display_name} a quitte la salle"
+                )
+                await self._event(asession, room_id, "leave", detail, me)
             await asession.commit()
         self.polling = False
-        return rx.redirect(f"/games/{self.slug}")
+        self.active_id = 0
+        if closed:
+            yield rx.toast(
+                "Salle d'attente fermee: tous les joueurs ont ete liberes."
+            )
+        else:
+            yield rx.toast("Vous avez quitte la partie.")
+        yield rx.redirect(f"/games/{slug}")
 
     @rx.event
     async def send_reaction(self, emoji: str, label: str):
@@ -1186,10 +1529,11 @@ class RoomState(rx.State):
             order = await self._order(asession, self.active_id)
             slug = str(room[7])
             rules = json.loads(str(room[1]) or "{}")
-            minimum = 1 if slug == "loto" else 2
+            minimum = 1 if slug in ("loto", "domino") else 2
             if len(order) < minimum:
                 return rx.toast(f"Il faut au moins {minimum} joueur(s).")
             version = int(room[3] or 0)
+            rules_update: dict | None = None
             if slug == "loto":
                 cards = (
                     await asession.execute(
@@ -1206,8 +1550,52 @@ class RoomState(rx.State):
                 state["phase"] = "playing"
                 seconds = int(rules.get("draw_seconds", 12))
             elif slug == "domino":
-                state = engine.domino_initial_state(order, rules)
-                seconds = 40
+                try:
+                    wanted = int(
+                        rules.get("number_of_players") or int(room[10] or 2)
+                    )
+                except (TypeError, ValueError):
+                    wanted = 2
+                wanted = 3 if wanted >= 3 else 2
+                fill = bool(rules.get("fill_with_bots"))
+                humans = list(order)
+                if len(humans) > wanted:
+                    return rx.toast(
+                        f"Trop de joueurs: {wanted} place(s) configuree(s)."
+                    )
+                missing = wanted - len(humans)
+                if missing > 0 and not fill:
+                    return rx.toast(
+                        f"Il manque {missing} joueur(s): activez les bots "
+                        "ou attendez les joueurs manquants."
+                    )
+                bots = [
+                    {"id": -(index + 1), "name": f"Bot {index + 1}"}
+                    for index in range(missing)
+                ]
+                participants = humans + [int(b["id"]) for b in bots]
+                if len(participants) != wanted:
+                    return rx.toast("Configuration de joueurs invalide.")
+                target = engine.domino_target_score(rules)
+                state = engine.domino_initial_state(participants, rules)
+                seconds = engine.domino_turn_seconds(rules)
+                created = room[20]
+                rules_update = {
+                    **rules,
+                    "game_mode": engine.domino_mode(rules),
+                    "target_score": target,
+                    "maty": target,
+                    "number_of_players": wanted,
+                    "no_double_six": bool(rules.get("no_double_six")),
+                    "one_on_blank": bool(rules.get("one_on_blank")),
+                    "fill_with_bots": fill,
+                    "bots": bots,
+                    "order": participants,
+                    "game_state": "playing",
+                    "created_at": created.isoformat()
+                    if created is not None
+                    else str(rules.get("created_at", "")),
+                }
             elif slug == "ludo":
                 state = engine.ludo_initial_state(order, rules)
                 seconds = 30
@@ -1226,7 +1614,7 @@ class RoomState(rx.State):
             else:
                 state = engine.billard_initial_state(order)
                 seconds = 45
-            turn = 0 if slug == "loto" else order[0]
+            turn = 0 if slug == "loto" else int(state.get("turn", order[0]))
             ok = await self._write(
                 asession,
                 self.active_id,
@@ -1236,6 +1624,7 @@ class RoomState(rx.State):
                 turn=turn or None,
                 deadline_seconds=seconds,
                 round_number=1,
+                rules=rules_update,
                 kind="start",
                 payload={"players": len(order)},
                 actor=me,
@@ -1250,6 +1639,8 @@ class RoomState(rx.State):
                 me,
             )
             await asession.commit()
+        if slug == "domino":
+            await self._run_bots()
         await self._refresh()
         return rx.toast("La partie commence !")
 
@@ -1551,6 +1942,11 @@ class RoomState(rx.State):
         return await RoomState._domino_action("place", index, side)
 
     @rx.event
+    async def domino_auto_play(self, index: int):
+        """Rush Auto: the server resolves the legal side deterministically."""
+        return await RoomState._domino_action("place", index, "auto")
+
+    @rx.event
     async def domino_draw(self):
         return await RoomState._domino_action("draw", 0, "")
 
@@ -1558,96 +1954,198 @@ class RoomState(rx.State):
     async def domino_pass(self):
         return await RoomState._domino_action("pass", 0, "")
 
+    async def _domino_progress(
+        self,
+        asession,
+        room,
+        state: dict,
+        actor: int,
+        order: list[int],
+        rules: dict,
+        version: int,
+        kind: str,
+        payload: dict[str, Any],
+        drew: bool = False,
+    ) -> tuple[bool, str, bool]:
+        """Persist one accepted Domino step: turn, round, target, settlement.
+
+        Returns (written, round_note, match_finished).
+        """
+        room_id = self.active_id
+        target = engine.domino_target_score(rules)
+        seconds = engine.domino_turn_seconds(rules)
+        round_over = engine.domino_round_over(state, order)
+        extra = bool(state.get("extra_turn"))
+        if drew and not round_over:
+            turn = actor
+        elif extra and not round_over:
+            turn = actor
+        else:
+            turn = engine.domino_next(order, actor)
+        note = ""
+        winner_id = 0
+        finished = False
+        if round_over:
+            winner_id, points = engine.domino_round_result(state, order)
+            scores = dict(state.get("scores", {}))
+            scores[str(winner_id)] = int(scores.get(str(winner_id), 0)) + points
+            state = dict(state)
+            state["scores"] = scores
+            state["extra_turn"] = False
+            note = f"Manche gagnee: +{points} points (objectif {target})"
+            await self._log(
+                asession,
+                room_id,
+                "round_end",
+                {"name": str(winner_id), "amount": points},
+                version + 1,
+                int(room[5] or 0),
+                winner_id if winner_id > 0 else None,
+            )
+            if int(scores[str(winner_id)]) >= target:
+                state["phase"] = "finished"
+                state["target"] = target
+                turn = winner_id
+                finished = True
+            else:
+                carried = scores
+                state = engine.domino_initial_state(order, rules, carried)
+                state["round"] = int(room[5] or 0) + 1
+                turn = int(state["turn"])
+        ok = await self._write(
+            asession,
+            room_id,
+            version,
+            state,
+            turn=turn,
+            deadline_seconds=seconds,
+            round_number=(int(room[5] or 0) + 1) if round_over else None,
+            kind=kind,
+            payload=payload,
+            actor=actor if actor > 0 else None,
+        )
+        if not ok:
+            return False, "", False
+        if note:
+            await self._event(
+                asession,
+                room_id,
+                "round_end",
+                note,
+                actor if actor > 0 else None,
+            )
+        if finished and winner_id:
+            await self._settle(
+                asession,
+                room_id,
+                int(room[16]),
+                winner_id,
+                int(room[6] or 0),
+                "DOMINO",
+            )
+        return True, note, finished
+
+    async def _run_bots(self, limit: int = 24) -> bool:
+        """Authoritative bounded bot runner: plays every pending bot turn."""
+        acted = False
+        for _ in range(limit):
+            async with rx.asession() as asession:
+                room = await self._ctx(asession, self.active_id, lock=True)
+                if room is None or str(room[7]) != "domino":
+                    return acted
+                if str(room[2]) not in ("active", "in_progress"):
+                    return acted
+                actor = int(room[4] or 0)
+                if actor >= 0:
+                    return acted
+                state = json.loads(str(room[0]) or "{}")
+                rules = json.loads(str(room[1]) or "{}")
+                humans = await self._order(asession, self.active_id)
+                order = self._domino_order(rules, humans)
+                version = int(room[3] or 0)
+                if actor not in order:
+                    return acted
+                try:
+                    state, note = engine.domino_bot_turn(state, actor, rules)
+                except engine.MoveError:
+                    logging.exception("Bot turn failed")
+                    return acted
+                ok, _, finished = await self._domino_progress(
+                    asession,
+                    room,
+                    state,
+                    actor,
+                    order,
+                    rules,
+                    version,
+                    "bot_move",
+                    {"bot": actor, "note": note},
+                )
+                if not ok:
+                    return acted
+                await self._event(
+                    asession, self.active_id, "bot_move", note, None
+                )
+                await asession.commit()
+                acted = True
+                if finished:
+                    return acted
+            await asyncio.sleep(0)
+        return acted
+
     async def _domino_action(self, mode: str, index: int, side: str):
         auth = await self.get_state(AuthState)
         me = auth.account_id
+        note = ""
         async with rx.asession() as asession:
             room = await self._ctx(asession, self.active_id, lock=True)
             if room is None or str(room[7]) != "domino":
                 return rx.toast("Action indisponible.")
+            if str(room[2]) not in ("active", "in_progress"):
+                return rx.toast("La partie n'est pas en cours.")
             if int(room[4] or 0) != me:
                 return rx.toast("Ce n'est pas votre tour.")
             state = json.loads(str(room[0]) or "{}")
             rules = json.loads(str(room[1]) or "{}")
-            order = await self._order(asession, self.active_id)
+            humans = await self._order(asession, self.active_id)
+            order = self._domino_order(rules, humans)
             version = int(room[3] or 0)
+            game_mode = engine.domino_mode(rules)
             try:
                 if mode == "place":
-                    state = engine.domino_place(state, me, index, side)
+                    chosen = side
+                    if game_mode == "rush_auto" and side not in (
+                        "left",
+                        "right",
+                    ):
+                        chosen = "auto"
+                    state = engine.domino_place(state, me, index, chosen, rules)
                 elif mode == "draw":
                     state = engine.domino_draw(state, me)
                 else:
-                    if engine.domino_can_play(state, me):
-                        return rx.toast("Vous pouvez encore jouer.")
-                    state = dict(state)
-                    state["passes"] = int(state.get("passes", 0)) + 1
-                    state["last"] = "passe"
+                    state = engine.domino_pass(state, me)
             except engine.MoveError as exc:
-                logging.exception("Unexpected error")
+                logging.exception("Invalid domino move")
                 return rx.toast(str(exc))
-
-            hand_empty = len(state["hands"].get(str(me), [])) == 0
-            blocked = int(state.get("passes", 0)) >= len(order)
-            round_over = hand_empty or blocked
-            turn = me if mode == "draw" else await self._next_turn(order, me)
-            winner_id = 0
-            note = ""
-            if round_over:
-                winner_id, points = engine.domino_round_result(state, order)
-                scores = dict(state.get("scores", {}))
-                scores[str(winner_id)] = (
-                    int(scores.get(str(winner_id), 0)) + points
-                )
-                state["scores"] = scores
-                target = int(rules.get("maty", 50))
-                note = f"Manche gagnee: +{points} points"
-                await self._log(
-                    asession,
-                    self.active_id,
-                    "round_end",
-                    {"name": str(winner_id), "amount": points},
-                    version + 1,
-                    int(room[5] or 0),
-                    winner_id,
-                )
-                if int(scores[str(winner_id)]) >= target:
-                    state["phase"] = "finished"
-                else:
-                    state = engine.domino_initial_state(order, rules)
-                    state["scores"] = scores
-                    state["round"] = int(room[5] or 0) + 1
-                    turn = winner_id
-            ok = await self._write(
+            ok, note, _ = await self._domino_progress(
                 asession,
-                self.active_id,
-                version,
+                room,
                 state,
-                turn=turn,
-                deadline_seconds=40,
-                round_number=(int(room[5] or 0) + 1) if round_over else None,
-                kind="place_tile"
+                me,
+                order,
+                rules,
+                version,
+                "place_tile"
                 if mode == "place"
                 else ("draw_tile" if mode == "draw" else "pass_turn"),
-                payload={"index": index, "side": side},
-                actor=me,
+                {"index": index, "side": side},
+                drew=mode == "draw",
             )
             if not ok:
                 return rx.toast("Plateau modifie entre-temps, reessayez.")
-            if note:
-                await self._event(
-                    asession, self.active_id, "round_end", note, me
-                )
-            if state.get("phase") == "finished" and winner_id:
-                await self._settle(
-                    asession,
-                    self.active_id,
-                    int(room[16]),
-                    winner_id,
-                    int(room[6] or 0),
-                    "DOMINO",
-                )
             await asession.commit()
             auth.coin_balance = await balance_of(asession, me)
+        await self._run_bots()
         await self._refresh()
         if note:
             self.round_result_open = True
@@ -2215,6 +2713,42 @@ class RoomState(rx.State):
             if slug == "loto":
                 await asession.commit()
                 return RoomState.draw_number
+            if slug == "domino":
+                state = json.loads(str(room[0]) or "{}")
+                rules = json.loads(str(room[1]) or "{}")
+                humans = await self._order(asession, self.active_id)
+                order = self._domino_order(rules, humans)
+                current = int(room[4] or 0)
+                version = int(room[3] or 0)
+                if current < 0:
+                    await asession.commit()
+                    await self._run_bots()
+                    await self._refresh()
+                    return None
+                state = dict(state)
+                state["passes"] = int(state.get("passes", 0)) + 1
+                state["extra_turn"] = False
+                state["last"] = "temps ecoule"
+                ok, _, _ = await self._domino_progress(
+                    asession,
+                    room,
+                    state,
+                    current,
+                    order,
+                    rules,
+                    version,
+                    "timeout",
+                    {"skipped": current},
+                )
+                if not ok:
+                    return rx.toast("Reessayez.")
+                await self._event(
+                    asession, self.active_id, "timeout", "Temps ecoule", None
+                )
+                await asession.commit()
+                await self._run_bots()
+                await self._refresh()
+                return None
             state = json.loads(str(room[0]) or "{}")
             version = int(room[3] or 0)
             order = await self._order(asession, self.active_id)
