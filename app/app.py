@@ -6,6 +6,7 @@ from app.pages.game_lobby import game_lobby_page
 from app.pages.game_room import game_room_page
 from app.pages.games import games_page
 from app.pages.home import home_page
+from app.pages.leaderboard import leaderboard_page
 from app.pages.messages import messages_page
 from app.pages.profile import profile_page
 from app.pages.settings import settings_page
@@ -13,6 +14,7 @@ from app.pages.transactions import transactions_page
 from app.states.auth_state import AuthState
 from app.states.friends_state import FriendsState
 from app.states.games_state import GamesState
+from app.states.leaderboard_state import LeaderboardState
 from app.states.messages_state import MessagesState
 from app.states.profile_state import ProfileState
 from app.states.room_state import RoomState
@@ -78,6 +80,11 @@ app.add_page(
     games_page,
     route="/games",
     on_load=[AuthState.guard_session, GamesState.load_hub],
+)
+app.add_page(
+    leaderboard_page,
+    route="/leaderboard",
+    on_load=[AuthState.guard_session, LeaderboardState.load_leaderboard],
 )
 app.add_page(
     game_room_page,

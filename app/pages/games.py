@@ -121,6 +121,18 @@ def hub_body() -> rx.Component:
                 class_name="min-w-0 flex-1",
             ),
             rx.el.div(
+                rx.el.a(
+                    rx.icon("trophy", class_name="h-4 w-4"),
+                    rx.el.span("Classement"),
+                    href="/leaderboard",
+                    title="Statistiques et classement des joueurs",
+                    class_name=(
+                        "flex items-center gap-1.5 rounded-xl border "
+                        "border-amber-400/50 bg-[#141108] px-3 py-2 text-xs "
+                        "font-black uppercase tracking-wide text-amber-300 "
+                        "hover:bg-amber-400/10"
+                    ),
+                ),
                 rx.el.input(
                     placeholder="Code de salle",
                     default_value=GamesState.join_code,
