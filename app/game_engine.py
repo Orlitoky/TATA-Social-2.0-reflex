@@ -72,6 +72,10 @@ def loto_initial_state() -> dict:
     return {"phase": "waiting", "drawn": [], "claims": [], "log": []}
 
 
+def loto_exhausted(state: dict) -> bool:
+    return len(state.get("drawn", [])) >= 90
+
+
 def loto_draw(state: dict) -> tuple[dict, int]:
     drawn = list(state.get("drawn", []))
     pool = [n for n in range(1, 91) if n not in drawn]
@@ -164,9 +168,11 @@ def domino_deck(rules: dict) -> list[list[int]]:
 
 
 def domino_hand_size(rules: dict, players: int) -> int:
-    if domino_mode(rules) == "draw":
-        return 3
-    return 7 if players <= 2 else 6
+    """Standard distribution: exactly 7 tiles per player, 2 or 3 players.
+
+    The remaining double-six tiles form the boneyard in every visible mode.
+    """
+    return 7
 
 
 def domino_next(order: list[int], current: int) -> int:
@@ -348,6 +354,31 @@ def domino_draw(state: dict, actor: int) -> dict:
     return new_state
 
 
+def domino_playable_sides(
+    state: dict, actor: int, index: int
+) -> tuple[bool, bool]:
+    """Return (left legal, right legal) for one hand index."""
+    left = any(m == (index, "left") for m in domino_legal_moves(state, actor))
+    right = any(m == (index, "right") for m in domino_legal_moves(state, actor))
+    return left, right
+
+
+def domino_can_draw(state: dict, actor: int) -> bool:
+    """Drawing is allowed while the boneyard still holds a tile."""
+    if not state.get("hands"):
+        return False
+    return len(state.get("boneyard", [])) > 0
+
+
+def domino_can_pass(state: dict, actor: int) -> bool:
+    """Passing is allowed only with no legal move and an empty boneyard."""
+    if not state.get("hands"):
+        return False
+    if state.get("boneyard"):
+        return False
+    return not domino_can_play(state, actor)
+
+
 def domino_pass(state: dict, actor: int) -> dict:
     if domino_can_play(state, actor):
         raise MoveError("Vous pouvez encore jouer.")
@@ -412,6 +443,8 @@ def domino_round_result(state: dict, order: list[int]) -> tuple[int, int]:
 
 LUDO_TRACK = 51
 LUDO_SAFE = {0, 8, 13, 21, 26, 34, 39, 47}
+LUDO_HOME = 58
+LUDO_PAWNS = 4
 
 
 def ludo_path() -> list[tuple[int, int]]:
@@ -432,9 +465,16 @@ def ludo_path() -> list[tuple[int, int]]:
     return path
 
 
+def ludo_normalize_rules(rules: dict) -> dict:
+    """Force the standard four-pawn goal on legacy rooms, no migration."""
+    normalized = dict(rules or {})
+    normalized["goal_pawns"] = LUDO_PAWNS
+    return normalized
+
+
 def ludo_initial_state(order: list[int], rules: dict) -> dict:
     colors = ["red", "green", "yellow", "blue"]
-    goal = int(rules.get("goal_pawns", 3))
+    goal = LUDO_PAWNS
     return {
         "phase": "playing",
         "turn": order[0],
@@ -464,17 +504,19 @@ def ludo_legal_pawns(state: dict, actor: int) -> list[int]:
     dice = int(state.get("dice", 0))
     if dice == 0:
         return []
-    pawns = state["pawns"].get(str(actor), [])
+    pawns = list(state["pawns"].get(str(actor), []))
+    if len(pawns) < LUDO_PAWNS:
+        pawns.extend([-1] * (LUDO_PAWNS - len(pawns)))
     legal = []
     for index, pos in enumerate(pawns):
-        if pos >= 58:
+        if pos >= LUDO_HOME:
             continue
         if pos == -1:
             if dice == 6:
                 legal.append(index)
             continue
         target = pos + dice
-        if target <= 58:
+        if target <= LUDO_HOME:
             legal.append(index)
     return legal
 
@@ -488,6 +530,8 @@ def ludo_move(state: dict, actor: int, pawn_index: int) -> tuple[dict, str]:
     pawns_all = {k: list(v) for k, v in state["pawns"].items()}
     pawns = pawns_all[str(actor)]
     note = ""
+    if len(pawns) < LUDO_PAWNS:
+        pawns.extend([-1] * (LUDO_PAWNS - len(pawns)))
     if pawns[pawn_index] == -1:
         pawns[pawn_index] = 0
     else:
@@ -516,11 +560,18 @@ def ludo_move(state: dict, actor: int, pawn_index: int) -> tuple[dict, str]:
 
 
 def ludo_winner(state: dict) -> int:
-    goal = int(state.get("goal", 3))
+    """Standard rule: all four pawns must reach the exact home cell."""
     for account_id, pawns in state["pawns"].items():
-        if sum(1 for p in pawns if p >= 58) >= goal:
+        if len(pawns) >= LUDO_PAWNS and all(
+            int(p) >= LUDO_HOME for p in pawns[:LUDO_PAWNS]
+        ):
             return int(account_id)
     return 0
+
+
+def ludo_home_count(state: dict, account_id: int) -> int:
+    pawns = state.get("pawns", {}).get(str(account_id), [])
+    return sum(1 for p in pawns if int(p) >= LUDO_HOME)
 
 
 # ---------------------------------------------------------------------------

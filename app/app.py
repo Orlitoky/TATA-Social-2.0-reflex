@@ -2,7 +2,7 @@ import reflex as rx
 
 from app.pages.auth import login_page, signup_page
 from app.pages.friends import friends_page
-from app.pages.game_lobby import game_lobby_page
+from app.pages.game_detail import game_detail_page
 from app.pages.game_room import game_room_page
 from app.pages.games import games_page
 from app.pages.home import home_page
@@ -72,7 +72,7 @@ app.add_page(
     ],
 )
 app.add_page(
-    game_lobby_page,
+    game_detail_page,
     route="/games/[game_slug]",
     on_load=[AuthState.guard_session, GamesState.load_lobby],
 )

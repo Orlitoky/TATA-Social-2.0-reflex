@@ -203,7 +203,7 @@ def loto_board() -> rx.Component:
                         ),
                         rx.el.p(
                             "Aucun carton pour l'instant. Achetez de 1 a "
-                            "10 cartons selon votre niveau.",
+                            "5 cartons.",
                             class_name="text-sm text-zinc-500",
                         ),
                     ),
@@ -246,7 +246,7 @@ def loto_controls() -> rx.Component:
                 id="buy_count",
                 type="number",
                 min=1,
-                max=10,
+                max=5,
                 default_value=RoomState.buy_count.to_string(),
                 on_change=RoomState.set_buy_count.debounce(300),
                 class_name=(

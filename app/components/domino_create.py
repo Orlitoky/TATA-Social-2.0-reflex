@@ -90,8 +90,8 @@ def mode_option(mode: dict[str, str]) -> rx.Component:
         on_click=lambda: GamesState.set_draft_mode(mode["key"]),
         class_name=rx.cond(
             selected,
-            "flex items-center gap-2 rounded-xl border border-[#F4C542]/70 "
-            "bg-[#132846] px-3 py-2.5 ring-1 ring-[#F4C542]/30",
+            "flex items-center gap-2 rounded-xl border border-[#1E9EF5] "
+            "bg-[#102a45] px-3 py-2.5 ring-1 ring-[#22D3EE]/30",
             "flex items-center gap-2 rounded-xl border border-white/8 "
             "bg-[#0f1d30] px-3 py-2.5 hover:border-white/20",
         ),
@@ -109,16 +109,16 @@ def score_chip(score: dict[str, str]) -> rx.Component:
             selected,
             rx.cond(
                 is_custom,
-                "rounded-xl border border-[#A855F7] bg-[#2A1740] px-3 py-2 "
-                "text-[13px] font-bold text-[#E9D5FF]",
-                "rounded-xl border border-[#F4C542] bg-[#2A2208] px-3 py-2 "
-                "text-[13px] font-bold text-[#FFE79A]",
+                "rounded-xl border border-[#22D3EE] bg-[#0b2c3a] px-3 py-2 "
+                "text-[13px] font-bold text-[#A5F3FC]",
+                "rounded-xl border border-[#1E9EF5] bg-[#102a45] px-3 py-2 "
+                "text-[13px] font-bold text-[#BFE3FF]",
             ),
             rx.cond(
                 is_custom,
-                "rounded-xl border border-[#A855F7]/30 bg-[#0f1d30] px-3 "
-                "py-2 text-[13px] font-bold text-[#C9A6F0] "
-                "hover:border-[#A855F7]/60",
+                "rounded-xl border border-[#22D3EE]/30 bg-[#0f1d30] px-3 "
+                "py-2 text-[13px] font-bold text-[#7FD9E8] "
+                "hover:border-[#22D3EE]/60",
                 "rounded-xl border border-white/8 bg-[#0f1d30] px-3 py-2 "
                 "text-[13px] font-bold text-slate-300 hover:border-white/20",
             ),
@@ -144,10 +144,10 @@ def score_selector() -> rx.Component:
                     on_change=GamesState.set_draft_custom_score.debounce(250),
                     aria_label="Score personnalise",
                     class_name=(
-                        "w-full rounded-xl border border-[#A855F7]/50 "
-                        "bg-[#160b26] px-3 py-2.5 text-sm font-semibold "
+                        "w-full rounded-xl border border-[#22D3EE]/50 "
+                        "bg-[#08202c] px-3 py-2.5 text-sm font-semibold "
                         "text-white outline-hidden placeholder:text-slate-500 "
-                        "focus:border-[#A855F7]"
+                        "focus:border-[#22D3EE]"
                     ),
                 ),
                 rx.el.p(
@@ -208,7 +208,7 @@ def rule_row(rule: dict[str, str]) -> rx.Component:
             rule["icon"],
             class_name=rx.cond(
                 active,
-                "h-4 w-4 text-[#F4C542]",
+                "h-4 w-4 text-[#22D3EE]",
                 "h-4 w-4 text-[#3E6E9E]",
             ),
         ),
@@ -236,7 +236,7 @@ def rule_row(rule: dict[str, str]) -> rx.Component:
             class_name=rx.cond(
                 active,
                 "flex h-5 w-9 shrink-0 items-center rounded-full "
-                "bg-[#F4C542] p-0.5",
+                "bg-[#22D3EE] p-0.5",
                 "flex h-5 w-9 shrink-0 items-center rounded-full "
                 "bg-[#182a41] p-0.5",
             ),
@@ -246,7 +246,7 @@ def rule_row(rule: dict[str, str]) -> rx.Component:
         class_name=rx.cond(
             active,
             "flex w-full items-center gap-3 rounded-xl border "
-            "border-[#F4C542]/40 bg-[#131f31] px-3 py-2.5",
+            "border-[#22D3EE]/40 bg-[#0d2436] px-3 py-2.5",
             "flex w-full items-center gap-3 rounded-xl border border-white/8 "
             "bg-[#0f1d30] px-3 py-2.5 hover:border-white/20",
         ),
@@ -344,7 +344,7 @@ def sheet_footer() -> rx.Component:
                 rx.el.span(
                     rx.icon(
                         "loader-circle",
-                        class_name="h-4 w-4 animate-spin text-[#07111f]",
+                        class_name="h-4 w-4 animate-spin text-white",
                     ),
                     rx.el.span("Creation..."),
                     class_name="flex items-center justify-center gap-2",
@@ -359,8 +359,8 @@ def sheet_footer() -> rx.Component:
             disabled=GamesState.domino_creating,
             on_click=GamesState.create_domino_room,
             class_name=(
-                "flex-1 rounded-xl bg-[#F4C542] px-4 py-3 text-[13px] "
-                "font-black text-[#07111f] hover:bg-[#FFD75E] "
+                "flex-1 rounded-xl bg-[#1E9EF5] px-4 py-3 text-[13px] "
+                "font-black text-white hover:bg-[#3FAFFA] "
                 "disabled:opacity-60"
             ),
         ),

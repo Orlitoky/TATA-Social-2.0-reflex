@@ -10,13 +10,21 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+import secrets
 from typing import Any, TypedDict
 
 import reflex as rx
 from sqlalchemy import text
 
 from app import game_engine as engine
-from app.games_catalog import GAME_REACTIONS, tier_by_key
+from app.games_catalog import (
+    GAME_REACTIONS,
+    LOTO_MAX_CARDS,
+    LOTO_MIN_CARDS,
+    LOTO_TIER_NOTICE,
+    loto_claim_label,
+    tier_by_key,
+)
 from app.media import avatar_source
 from app.states.auth_state import AuthState
 from app.wallet import balance_of, move_coins
@@ -40,11 +48,15 @@ class PlayerRow(TypedDict):
     hand_count: int
     color: str
     hearts: int
+    home_pawns: int
+    is_me: bool
+    is_bot: bool
 
 
 class LobbySlot(TypedDict):
     seat: int
     kind: str
+    account_id: int
     name: str
     avatar_url: str
     avatar_remote: bool
@@ -52,6 +64,9 @@ class LobbySlot(TypedDict):
     is_online: bool
     is_ready: bool
     is_me: bool
+    can_remove: bool
+    cards: int
+    color: str
 
 
 class ActivityRow(TypedDict):
@@ -92,6 +107,36 @@ class TileRow(TypedDict):
     a: int
     b: int
     playable: bool
+    can_left: bool
+    can_right: bool
+
+
+class ChatRow(TypedDict):
+    id: int
+    name: str
+    text: str
+    time_label: str
+    is_me: bool
+
+
+class HistoryRow(TypedDict):
+    sequence: int
+    kind_label: str
+    actor: str
+    summary: str
+    round_number: int
+    time_label: str
+
+
+class StandingRow(TypedDict):
+    account_id: int
+    name: str
+    avatar_url: str
+    avatar_remote: bool
+    score: int
+    detail: str
+    is_winner: bool
+    is_me: bool
 
 
 class ScoreRow(TypedDict):
@@ -105,6 +150,15 @@ class LudoCell(TypedDict):
     pawn: str
     safe: bool
     arrow: str
+
+
+class LudoZone(TypedDict):
+    color: str
+    name: str
+    base: int
+    home: int
+    is_turn: bool
+    corner: str
 
 
 class NodeRow(TypedDict):
@@ -179,7 +233,26 @@ class RoomState(rx.State):
     reaction_choices: list[dict[str, str]] = GAME_REACTIONS
     reaction_tab: str = "emoji"
 
+    my_account_id: int = 0
+
+    # Shared gameplay tools
+    chat_messages: list[ChatRow] = []
+    history_rows: list[HistoryRow] = []
+    history_open: bool = False
+    replay_open: bool = False
+    audio_on: bool = True
+    result_dismissed: bool = False
+    winner_account_id: int = 0
+    winner_avatar: str = ""
+    winner_avatar_remote: bool = False
+    standings: list[StandingRow] = []
+    result_headline: str = ""
+    result_detail: str = ""
+    rematch_busy: bool = False
+
     # LOTO
+    loto_tier_notice: str = LOTO_TIER_NOTICE
+    loto_max_cards: int = LOTO_MAX_CARDS
     tier_key: str = ""
     tier_label: str = ""
     tier_price: int = 0
@@ -205,13 +278,17 @@ class RoomState(rx.State):
     domino_variants: str = ""
     round_result_open: bool = False
     round_result_text: str = ""
+    domino_can_draw: bool = False
+    domino_can_pass: bool = False
 
     # LUDO
     ludo_rows: list[list[LudoCell]] = []
     dice_value: int = 0
     dice_rolled: bool = False
-    ludo_goal: int = 3
+    ludo_goal: int = 4
     my_pawns: list[int] = []
+    my_home_pawns: int = 0
+    ludo_zones: list[LudoZone] = []
     legal_pawns: list[int] = []
 
     # FARITANY
@@ -229,16 +306,26 @@ class RoomState(rx.State):
     has_drawn: bool = False
     melds: list[MeldRow] = []
 
-    # DOMINO LOBBY (waiting room)
+    # SHARED WAITING LOBBY (domino / ludo / loto)
     lobby_slots: list[LobbySlot] = []
     lobby_mode: str = "classic"
     lobby_target_score: int = 50
     lobby_target_players: int = 2
+    lobby_min_players: int = 2
     lobby_special_rules: list[str] = []
     lobby_fill_bots: bool = False
     lobby_occupied: int = 0
     lobby_bot_count: int = 0
+    lobby_human_count: int = 0
+    lobby_unready_count: int = 0
     lobby_host_name: str = ""
+    lobby_goal_pawns: int = 4
+    lobby_tier_label: str = ""
+    lobby_tier_price: int = 0
+    lobby_tier_max_cards: int = 0
+    lobby_draw_seconds: int = 12
+    lobby_ticket_total: int = 0
+    lobby_my_tickets: int = 0
     my_ready: bool = False
 
     # BILLARD
@@ -265,8 +352,86 @@ class RoomState(rx.State):
         return self.domino_mode_key == "rush_auto"
 
     @rx.var
-    def is_domino_lobby(self) -> bool:
-        return self.slug == "domino" and self.status in ("open", "waiting")
+    def is_tata_game(self) -> bool:
+        return self.slug in ("domino", "ludo", "loto")
+
+    @rx.var
+    def show_result(self) -> bool:
+        return self.is_finished and not self.result_dismissed
+
+    @rx.var
+    def i_won(self) -> bool:
+        return (
+            self.winner_account_id > 0
+            and self.winner_account_id == self.my_account_id
+        )
+
+    @rx.var
+    def urgent(self) -> bool:
+        return self.is_playing and self.seconds_left <= 5
+
+    @rx.var
+    def audio_label(self) -> str:
+        return "Sons actifs" if self.audio_on else "Sons coupes"
+
+    @rx.var
+    def timer_label(self) -> str:
+        return f"{self.seconds_left}s" if self.seconds_left > 0 else "0s"
+
+    @rx.var
+    def buy_total_points(self) -> int:
+        return max(0, self.buy_count) * max(0, self.tier_price)
+
+    @rx.var
+    def drawn_count(self) -> int:
+        return len(self.drawn)
+
+    @rx.var
+    def recent_draws(self) -> list[int]:
+        return self.drawn[:12]
+
+    @rx.var
+    def is_game_lobby(self) -> bool:
+        """Shared waiting lobby for the three visible TATA games."""
+        return self.slug in ("domino", "ludo", "loto") and self.status in (
+            "open",
+            "waiting",
+        )
+
+    @rx.var
+    def is_loto_lobby(self) -> bool:
+        return self.slug == "loto" and self.status in ("open", "waiting")
+
+    @rx.var
+    def connection_state(self) -> str:
+        if self.error != "":
+            return "error"
+        if not self.loaded:
+            return "connecting"
+        if not self.is_member:
+            return "removed"
+        if not self.polling:
+            return "paused"
+        return "live"
+
+    @rx.var
+    def connection_label(self) -> str:
+        return {
+            "error": "Connexion perdue",
+            "connecting": "Connexion...",
+            "removed": "Hors de la salle",
+            "paused": "Synchro en pause",
+            "live": "En direct",
+        }.get(self.connection_state, "En direct")
+
+    @rx.var
+    def lobby_locked_out(self) -> bool:
+        """Loaded waiting room viewed by a removed / departed account."""
+        return self.loaded and (not self.is_member) and self.error == ""
+
+    @rx.var
+    def detail_href(self) -> str:
+        return f"/games/{self.slug}"
 
     @rx.var
     def lobby_mode_label(self) -> str:
@@ -287,17 +452,47 @@ class RoomState(rx.State):
 
     @rx.var
     def lobby_can_start(self) -> bool:
-        if not self.is_host:
+        if not self.is_host or not self.is_waiting:
             return False
-        if self.lobby_occupied >= self.lobby_target_players:
-            return True
-        return self.lobby_fill_bots and self.lobby_occupied >= 1
+        if self.lobby_unready_count > 0:
+            return False
+        if self.lobby_human_count > self.lobby_target_players:
+            return False
+        if self.slug == "loto":
+            return self.lobby_human_count >= 1 and self.lobby_ticket_total > 0
+        if self.slug == "ludo":
+            return self.lobby_human_count >= 2
+        if self.slug == "domino":
+            if self.lobby_human_count >= self.lobby_target_players:
+                return True
+            return self.lobby_fill_bots and self.lobby_human_count >= 1
+        return self.lobby_human_count >= self.lobby_min_players
 
     @rx.var
     def lobby_start_hint(self) -> str:
-        if self.lobby_occupied >= self.lobby_target_players:
+        if not self.is_waiting:
+            return "La partie a deja commence."
+        if self.lobby_human_count > self.lobby_target_players:
+            return (
+                f"Trop de joueurs: {self.lobby_target_players} place(s) "
+                "configuree(s)."
+            )
+        if self.lobby_unready_count > 0:
+            return (
+                f"{self.lobby_unready_count} joueur(s) ne sont pas encore "
+                "prets."
+            )
+        if self.slug == "loto":
+            if self.lobby_ticket_total == 0:
+                return "Achetez au moins un carton avant de lancer le tirage."
+            return "Tirage pret: les cartons sont en jeu."
+        if self.slug == "ludo":
+            if self.lobby_human_count < 2:
+                return "Ludo demande au moins 2 joueurs humains."
+            return "Tous les joueurs sont prets."
+        if self.lobby_human_count >= self.lobby_target_players:
             return "Tous les sieges sont occupes."
-        missing = self.lobby_target_players - self.lobby_occupied
+        missing = self.lobby_target_players - self.lobby_human_count
         if self.lobby_fill_bots:
             return (
                 f"{missing} siege(s) libre(s): le serveur les completera "
@@ -639,6 +834,7 @@ class RoomState(rx.State):
         me = auth.account_id
         room_id = self.active_id or self._params_room_id()
         self.active_id = room_id
+        self.my_account_id = me
         if room_id == 0 or me == 0:
             self.error = "Salle introuvable."
             return
@@ -753,6 +949,11 @@ class RoomState(rx.State):
                         "hand_count": len(hands.get(str(account_id), [])),
                         "color": str(colors.get(str(account_id), "")),
                         "hearts": int(hearts.get(str(account_id), 3)),
+                        "home_pawns": engine.ludo_home_count(state, account_id)
+                        if self.slug == "ludo"
+                        else 0,
+                        "is_me": account_id == me,
+                        "is_bot": False,
                     }
                 )
             if self.slug == "domino":
@@ -777,6 +978,9 @@ class RoomState(rx.State):
                             "hand_count": len(hands.get(str(bot_id), [])),
                             "color": "",
                             "hearts": 3,
+                            "home_pawns": 0,
+                            "is_me": False,
+                            "is_bot": True,
                         }
                     )
             self.players = players
@@ -784,7 +988,15 @@ class RoomState(rx.State):
             names = {p["account_id"]: p["name"] for p in players}
             self.turn_name = names.get(self.turn_account_id, "")
             winner_id = int(room[15] or 0)
+            self.winner_account_id = winner_id
             self.winner_name = names.get(winner_id, "") if winner_id else ""
+            winner_row = next(
+                (p for p in players if p["account_id"] == winner_id), None
+            )
+            self.winner_avatar = winner_row["avatar_url"] if winner_row else ""
+            self.winner_avatar_remote = (
+                bool(winner_row["avatar_remote"]) if winner_row else False
+            )
 
             event_rows = (
                 await asession.execute(
@@ -792,7 +1004,8 @@ class RoomState(rx.State):
                         """
                         SELECT id, detail, TO_CHAR(created_at, 'HH24:MI:SS')
                         FROM game_room_event WHERE room_id = :r
-                        ORDER BY id DESC LIMIT 14
+                          AND event_type <> 'chat'
+                        ORDER BY id DESC LIMIT 18
                         """
                     ),
                     {"r": room_id},
@@ -852,9 +1065,9 @@ class RoomState(rx.State):
                 except ValueError:
                     data = {}
                 label = {
-                    "claim_quine": "Quine",
-                    "claim_double_quine": "Double Quine",
-                    "claim_full_house": "Carton plein",
+                    "claim_quine": loto_claim_label("quine"),
+                    "claim_double_quine": loto_claim_label("double_quine"),
+                    "claim_full_house": loto_claim_label("full_house"),
                     "round_end": "Manche",
                     "settle": "Reglement",
                 }.get(str(kind), str(kind))
@@ -863,8 +1076,21 @@ class RoomState(rx.State):
                 extra = f" - {amount} points nets" if amount else ""
                 announcements.append(f"{label}: {who}{extra}")
             self.announcements = announcements
-
+            await self._load_chat(asession, room_id, me)
+            await self._load_history(asession, room_id)
             await self._build_view(asession, room_id, state, rules, me, order)
+            self._build_standings(state, me, winner_id)
+
+        if (
+            allow_bots
+            and self.slug == "loto"
+            and self.status in ("active", "in_progress")
+            and self.timer_expired
+        ):
+            drawn_ok, _, _, _ = await self._loto_draw_once(manual=False)
+            if drawn_ok:
+                await self._refresh(allow_bots=False)
+                return
 
         if (
             allow_bots
@@ -874,6 +1100,190 @@ class RoomState(rx.State):
         ):
             if await self._run_bots():
                 await self._refresh(allow_bots=False)
+
+    # ---------------------------------------------- chat / history / result
+    async def _load_chat(self, asession, room_id: int, me: int) -> None:
+        rows = (
+            await asession.execute(
+                text(
+                    """
+                    SELECT e.id, e.detail,
+                           TO_CHAR(e.created_at, 'HH24:MI'),
+                           COALESCE(p.display_name, a.username, 'Systeme'),
+                           COALESCE(e.account_id, 0)
+                    FROM game_room_event e
+                    LEFT JOIN account a ON a.id = e.account_id
+                    LEFT JOIN profile p ON p.account_id = a.id
+                    WHERE e.room_id = :r AND e.event_type = 'chat'
+                    ORDER BY e.id DESC LIMIT 40
+                    """
+                ),
+                {"r": room_id},
+            )
+        ).all()
+        messages = [
+            {
+                "id": int(r[0]),
+                "text": str(r[1]),
+                "time_label": str(r[2]),
+                "name": str(r[3]),
+                "is_me": int(r[4] or 0) == me,
+            }
+            for r in rows
+        ]
+        messages.reverse()
+        self.chat_messages = messages
+
+    def _action_summary(self, kind: str, data: dict) -> tuple[str, str]:
+        """Honest, hidden-hand-free summary of one persisted action."""
+        labels = {
+            "start": "Debut",
+            "place_tile": "Pose",
+            "draw_tile": "Pioche",
+            "pass_turn": "Passe",
+            "bot_move": "Bot",
+            "roll_dice": "De",
+            "move_piece": "Deplacement",
+            "capture": "Capture",
+            "draw": "Tirage",
+            "timeout": "Temps ecoule",
+            "round_end": "Fin de manche",
+            "settle": "Reglement",
+            "claim_quine": loto_claim_label("quine"),
+            "claim_double_quine": loto_claim_label("double_quine"),
+            "claim_full_house": loto_claim_label("full_house"),
+            "buy_card": "Cartons",
+            "system": "Systeme",
+        }
+        label = labels.get(kind, kind)
+        if kind == "place_tile":
+            side = str(data.get("side", ""))
+            side_label = {"left": "a gauche", "right": "a droite"}.get(
+                side, "cote resolu par le serveur"
+            )
+            return label, f"Tuile posee {side_label}"
+        if kind == "draw_tile":
+            return label, "Une tuile piochee (contenu prive)"
+        if kind == "pass_turn":
+            return label, "Tour passe: aucune pose possible"
+        if kind == "bot_move":
+            return label, str(data.get("note", "coup du bot"))
+        if kind == "roll_dice":
+            return label, f"De {data.get('dice', 0)}"
+        if kind == "move_piece":
+            return label, f"Pion {int(data.get('pawn', 0)) + 1} avance"
+        if kind == "capture":
+            return label, "Pion adverse renvoye a la base"
+        if kind == "draw":
+            return label, f"Boule {data.get('number', '-')}"
+        if kind in (
+            "claim_quine",
+            "claim_double_quine",
+            "claim_full_house",
+        ):
+            return (
+                label,
+                f"{data.get('name', '')} - {data.get('amount', 0)} points nets",
+            )
+        if kind == "round_end":
+            return label, f"+{data.get('amount', 0)} points au gagnant"
+        if kind == "timeout":
+            return label, "Le serveur a fait avancer le tour"
+        if kind == "start":
+            return label, f"{data.get('players', 0)} joueur(s) en lice"
+        return label, ""
+
+    async def _load_history(self, asession, room_id: int) -> None:
+        rows = (
+            await asession.execute(
+                text(
+                    """
+                    SELECT ga.sequence, ga.kind, ga.payload_json,
+                           ga.round_number,
+                           TO_CHAR(ga.created_at, 'HH24:MI:SS'),
+                           COALESCE(p.display_name, a.username, 'Serveur')
+                    FROM game_action ga
+                    LEFT JOIN account a ON a.id = ga.account_id
+                    LEFT JOIN profile p ON p.account_id = a.id
+                    WHERE ga.room_id = :r
+                    ORDER BY ga.sequence LIMIT 400
+                    """
+                ),
+                {"r": room_id},
+            )
+        ).all()
+        history: list[HistoryRow] = []
+        for row in rows:
+            try:
+                data = json.loads(str(row[2]) or "{}")
+            except ValueError:
+                data = {}
+            if not isinstance(data, dict):
+                data = {}
+            label, summary = self._action_summary(str(row[1]), data)
+            history.append(
+                {
+                    "sequence": int(row[0] or 0),
+                    "kind_label": label,
+                    "actor": str(row[5]),
+                    "summary": summary,
+                    "round_number": int(row[3] or 0),
+                    "time_label": str(row[4]),
+                }
+            )
+        self.history_rows = history
+
+    def _build_standings(self, state: dict, me: int, winner_id: int) -> None:
+        rows: list[StandingRow] = []
+        scores_state = state.get("scores", {})
+        for player in self.players:
+            account_id = int(player["account_id"])
+            score = int(scores_state.get(str(account_id), player["score"]))
+            if self.slug == "loto":
+                detail = f"{player['cards']} carton(s)"
+            elif self.slug == "ludo":
+                detail = f"{player['home_pawns']}/4 pions a la maison"
+            else:
+                detail = f"{score} points"
+            rows.append(
+                {
+                    "account_id": account_id,
+                    "name": player["name"],
+                    "avatar_url": player["avatar_url"],
+                    "avatar_remote": player["avatar_remote"],
+                    "score": score,
+                    "detail": detail,
+                    "is_winner": account_id == winner_id and winner_id != 0,
+                    "is_me": account_id == me,
+                }
+            )
+        rows.sort(key=lambda r: (0 if r["is_winner"] else 1, -r["score"]))
+        self.standings = rows
+        if self.status == "finished":
+            if winner_id and winner_id == me:
+                self.result_headline = "Victoire"
+            elif winner_id:
+                self.result_headline = "Defaite"
+            else:
+                self.result_headline = "Partie terminee"
+            if self.slug == "loto":
+                self.result_detail = (
+                    f"{loto_claim_label('full_house')} remporte - "
+                    f"pot {self.pot_coins} points internes"
+                )
+            elif self.slug == "ludo":
+                self.result_detail = (
+                    f"Quatre pions a la maison - {self.net_prize} points nets"
+                )
+            else:
+                self.result_detail = (
+                    f"Objectif Maty {self.maty_target} atteint - "
+                    f"{self.net_prize} points nets"
+                )
+        else:
+            self.result_headline = ""
+            self.result_detail = ""
+            self.result_dismissed = False
 
     # ------------------------------------------------- per-game view builder
     async def _build_view(
@@ -887,11 +1297,11 @@ class RoomState(rx.State):
     ) -> None:
         slug = self.slug
         if slug == "loto":
-            tier = tier_by_key(str(rules.get("tier", "bronze_lite")))
+            tier = tier_by_key(str(rules.get("tier", "bronze")))
             self.tier_key = str(tier["key"])
             self.tier_label = str(tier["label"])
             self.tier_price = int(tier["card_price"])
-            self.tier_max_cards = int(tier["max_cards"])
+            self.tier_max_cards = LOTO_MAX_CARDS
             drawn = [int(n) for n in state.get("drawn", [])]
             self.drawn = list(reversed(drawn))
             self.last_number = drawn[-1] if drawn else 0
@@ -964,26 +1374,46 @@ class RoomState(rx.State):
             self.left_end = int(ends[0])
             self.right_end = int(ends[1])
             hand = state.get("hands", {}).get(str(me), [])
-            self.my_tiles = [
-                {
-                    "index": index,
-                    "a": int(tile[0]),
-                    "b": int(tile[1]),
-                    "playable": engine._domino_playable(
-                        list(tile), [self.left_end, self.right_end]
-                    ),
-                }
-                for index, tile in enumerate(hand)
-            ]
+            tiles: list[TileRow] = []
+            for index, tile in enumerate(hand):
+                if state.get("hands"):
+                    can_left, can_right = engine.domino_playable_sides(
+                        state, me, index
+                    )
+                else:
+                    can_left, can_right = False, False
+                tiles.append(
+                    {
+                        "index": index,
+                        "a": int(tile[0]),
+                        "b": int(tile[1]),
+                        "playable": can_left or can_right,
+                        "can_left": can_left,
+                        "can_right": can_right,
+                    }
+                )
+            self.my_tiles = tiles
             self.chain = [
                 {
                     "index": index,
                     "a": int(tile[0]),
                     "b": int(tile[1]),
                     "playable": False,
+                    "can_left": False,
+                    "can_right": False,
                 }
                 for index, tile in enumerate(state.get("chain", []))
             ]
+            self.domino_can_draw = bool(
+                self.my_turn
+                and self.is_playing
+                and engine.domino_can_draw(state, me)
+            )
+            self.domino_can_pass = bool(
+                self.my_turn
+                and self.is_playing
+                and engine.domino_can_pass(state, me)
+            )
             self.boneyard_count = len(state.get("boneyard", []))
             names = {p["account_id"]: p["name"] for p in self.players}
             self.scores = [
@@ -994,16 +1424,42 @@ class RoomState(rx.State):
                 for a, v in state.get("scores", {}).items()
             ]
         elif slug == "ludo":
-            self.ludo_goal = int(state.get("goal", rules.get("goal_pawns", 3)))
+            self.ludo_goal = engine.LUDO_PAWNS
             self.dice_value = int(state.get("dice", 0))
             self.dice_rolled = bool(state.get("rolled", False))
-            self.my_pawns = [
-                int(p) for p in state.get("pawns", {}).get(str(me), [])
-            ]
+            pawns = [int(p) for p in state.get("pawns", {}).get(str(me), [])]
+            while len(pawns) < engine.LUDO_PAWNS and state.get("pawns"):
+                pawns.append(-1)
+            self.my_pawns = pawns
+            self.my_home_pawns = sum(1 for p in pawns if p >= engine.LUDO_HOME)
             self.legal_pawns = (
                 engine.ludo_legal_pawns(state, me) if state.get("pawns") else []
             )
             self.ludo_rows = self._ludo_grid(state)
+            corners = ["tl", "tr", "br", "bl"]
+            palette = ["red", "green", "yellow", "blue"]
+            zones: list[LudoZone] = []
+            for position, player in enumerate(
+                [p for p in self.players if p["account_id"] > 0]
+            ):
+                account_id = player["account_id"]
+                raw = [
+                    int(p)
+                    for p in state.get("pawns", {}).get(str(account_id), [])
+                ]
+                while len(raw) < engine.LUDO_PAWNS:
+                    raw.append(-1)
+                zones.append(
+                    {
+                        "color": str(player["color"]) or palette[position % 4],
+                        "name": player["name"],
+                        "base": sum(1 for p in raw if p < 0),
+                        "home": sum(1 for p in raw if p >= engine.LUDO_HOME),
+                        "is_turn": account_id == self.turn_account_id,
+                        "corner": corners[position % 4],
+                    }
+                )
+            self.ludo_zones = zones
         elif slug == "faritany":
             cells = state.get("cells", [""] * 25)
             self.faritany_rows = [
@@ -1234,39 +1690,83 @@ class RoomState(rx.State):
         return grid
 
     # ------------------------------------------------------- lobby projection
-    def _build_lobby(self, rules: dict, me: int) -> None:
-        """Project persisted room settings + members into lobby seat rows."""
-        self.lobby_mode = str(rules.get("game_mode", "classic"))
-        target_score = rules.get("target_score") or rules.get("maty") or 50
-        try:
-            self.lobby_target_score = int(target_score)
-        except (TypeError, ValueError):
-            self.lobby_target_score = 50
+    def _lobby_capacity(self, rules: dict) -> tuple[int, int]:
+        """Return (configured capacity, minimum humans) for this game."""
         try:
             wanted = int(
                 rules.get("number_of_players") or self.max_players or 2
             )
         except (TypeError, ValueError):
             wanted = 2
-        self.lobby_target_players = 3 if wanted >= 3 else 2
+        if self.slug == "domino":
+            return (3 if wanted >= 3 else 2), 1
+        if self.slug == "ludo":
+            return max(2, min(4, max(wanted, int(self.max_players or 2)))), 2
+        if self.slug == "loto":
+            return max(2, min(80, int(self.max_players or wanted or 2))), 1
+        return max(2, wanted), 2
+
+    def _empty_slot(self, seat: int) -> LobbySlot:
+        return {
+            "seat": seat,
+            "kind": "empty",
+            "account_id": 0,
+            "name": "En attente...",
+            "avatar_url": "",
+            "avatar_remote": False,
+            "is_host": False,
+            "is_online": False,
+            "is_ready": False,
+            "is_me": False,
+            "can_remove": False,
+            "cards": 0,
+            "color": "",
+        }
+
+    def _build_lobby(self, rules: dict, me: int) -> None:
+        """Project persisted room settings + seated members into seat rows."""
+        self.lobby_mode = str(rules.get("game_mode", "classic"))
+        target_score = rules.get("target_score") or rules.get("maty") or 50
+        try:
+            self.lobby_target_score = int(target_score)
+        except (TypeError, ValueError):
+            self.lobby_target_score = 50
+        capacity, minimum = self._lobby_capacity(rules)
+        self.lobby_target_players = capacity
+        self.lobby_min_players = minimum
         specials: list[str] = []
         if rules.get("no_double_six"):
             specials.append("Sans Double-Six")
         if rules.get("one_on_blank"):
             specials.append("Un sur Blanc")
         self.lobby_special_rules = specials
-        self.lobby_fill_bots = bool(rules.get("fill_with_bots"))
+        self.lobby_fill_bots = self.slug == "domino" and bool(
+            rules.get("fill_with_bots")
+        )
+        # Ludo is always standard four pawns, whatever legacy rules stored.
+        self.lobby_goal_pawns = engine.LUDO_PAWNS
+        try:
+            self.lobby_draw_seconds = max(
+                5, min(120, int(rules.get("draw_seconds", 12)))
+            )
+        except (TypeError, ValueError):
+            self.lobby_draw_seconds = 12
+        if self.slug == "loto":
+            tier = tier_by_key(str(rules.get("tier", "bronze")))
+            self.lobby_tier_label = str(tier["label"])
+            self.lobby_tier_price = int(tier["card_price"])
+            self.lobby_tier_max_cards = LOTO_MAX_CARDS
 
-        bots = [str(b["name"]) for b in self._domino_bots(rules)]
+        # True persistent seat ordering: self.players already comes back
+        # ordered by game_room_member.seat, id.
+        humans = [p for p in self.players if p["account_id"] > 0]
         slots: list[LobbySlot] = []
-        humans = [p for p in self.players if p["account_id"] > 0][
-            : self.lobby_target_players
-        ]
-        for player in humans:
+        for index, player in enumerate(humans):
             slots.append(
                 {
-                    "seat": len(slots) + 1,
+                    "seat": index + 1,
                     "kind": "player",
+                    "account_id": player["account_id"],
                     "name": player["name"],
                     "avatar_url": player["avatar_url"],
                     "avatar_remote": player["avatar_remote"],
@@ -1274,59 +1774,55 @@ class RoomState(rx.State):
                     "is_online": player["is_online"],
                     "is_ready": player["is_ready"],
                     "is_me": player["account_id"] == me,
+                    "can_remove": (
+                        self.is_host
+                        and not player["is_host"]
+                        and player["account_id"] != me
+                    ),
+                    "cards": int(player["cards"]),
+                    "color": str(player["color"]),
                 }
             )
         bot_used = 0
-        for name in bots:
-            if len(slots) >= self.lobby_target_players:
-                break
-            bot_used += 1
-            slots.append(
-                {
-                    "seat": len(slots) + 1,
-                    "kind": "bot",
-                    "name": name or f"Bot {bot_used}",
-                    "avatar_url": "",
-                    "avatar_remote": False,
-                    "is_host": False,
-                    "is_online": True,
-                    "is_ready": True,
-                    "is_me": False,
-                }
-            )
-        planned = 0
-        while self.lobby_fill_bots and len(slots) < self.lobby_target_players:
-            planned += 1
-            slots.append(
-                {
-                    "seat": len(slots) + 1,
-                    "kind": "bot",
-                    "name": f"Bot {bot_used + planned}",
-                    "avatar_url": "",
-                    "avatar_remote": False,
-                    "is_host": False,
-                    "is_online": True,
-                    "is_ready": True,
-                    "is_me": False,
-                }
-            )
-        while len(slots) < self.lobby_target_players:
-            slots.append(
-                {
-                    "seat": len(slots) + 1,
-                    "kind": "empty",
-                    "name": "En attente...",
-                    "avatar_url": "",
-                    "avatar_remote": False,
-                    "is_host": False,
-                    "is_online": False,
-                    "is_ready": False,
-                    "is_me": False,
-                }
-            )
+        if self.lobby_fill_bots:
+            names = [str(b["name"]) for b in self._domino_bots(rules)]
+            while len(slots) < capacity:
+                bot_used += 1
+                label = (
+                    names[bot_used - 1]
+                    if bot_used <= len(names)
+                    else f"Bot {bot_used}"
+                )
+                slots.append(
+                    {
+                        "seat": len(slots) + 1,
+                        "kind": "bot",
+                        "account_id": 0,
+                        "name": label,
+                        "avatar_url": "",
+                        "avatar_remote": False,
+                        "is_host": False,
+                        "is_online": True,
+                        "is_ready": True,
+                        "is_me": False,
+                        "can_remove": False,
+                        "cards": 0,
+                        "color": "",
+                    }
+                )
+        while len(slots) < capacity:
+            slots.append(self._empty_slot(len(slots) + 1))
         self.lobby_slots = slots
         self.lobby_bot_count = bot_used
+        self.lobby_human_count = len(humans)
         self.lobby_occupied = len(humans) + bot_used
+        self.lobby_unready_count = sum(
+            1 for p in humans if not p["is_ready"] and not p["is_host"]
+        )
+        self.lobby_ticket_total = sum(int(p["cards"]) for p in humans)
+        self.lobby_my_tickets = sum(
+            int(p["cards"]) for p in humans if p["account_id"] == me
+        )
         self.lobby_host_name = next(
             (p["name"] for p in self.players if p["is_host"]), ""
         )
@@ -1350,16 +1846,18 @@ class RoomState(rx.State):
     def invite_players(self):
         url = str(self.router.url)
         code = self.code
+        game = (self.game_name or "TATA").replace('"', "")
         script = (
             "(async () => {"
             f'  const url = "{url}";'
             f'  const code = "{code}";'
-            '  const text = "Rejoins ma partie Domino TATA (code " + code'
-            '    + ") - points internes uniquement, aucune valeur '
+            f'  const game = "{game}";'
+            '  const text = "Rejoins ma partie " + game + " TATA (code "'
+            '    + code + ") - points internes uniquement, aucune valeur '
             'monetaire.";'
             "  try {"
             "    if (navigator.share) {"
-            '      await navigator.share({title: "Domino TATA", '
+            '      await navigator.share({title: game + " TATA", '
             "text: text, url: url});"
             "      return;"
             "    }"
@@ -1378,24 +1876,122 @@ class RoomState(rx.State):
     # ---------------------------------------------------------- room actions
     @rx.event
     async def toggle_ready(self):
+        """Only an active member of a waiting/open room may toggle Pret."""
         auth = await self.get_state(AuthState)
+        room_id = self.active_id
         async with rx.asession() as asession:
-            await asession.execute(
+            room = (
+                await asession.execute(
+                    text("SELECT status FROM game_room WHERE id = :r"),
+                    {"r": room_id},
+                )
+            ).first()
+            if room is None:
+                return rx.toast("Cette salle n'existe plus.")
+            if str(room[0]) not in ("open", "waiting"):
+                return rx.toast(
+                    "Le statut Pret n'est modifiable qu'avant le lancement."
+                )
+            result = await asession.execute(
                 text(
                     "UPDATE game_room_member SET is_ready = NOT is_ready "
-                    "WHERE room_id = :r AND account_id = :a"
+                    "WHERE room_id = :r AND account_id = :a "
+                    "AND left_at IS NULL"
                 ),
-                {"r": self.active_id, "a": auth.account_id},
+                {"r": room_id, "a": auth.account_id},
             )
+            if int(result.rowcount or 0) == 0:
+                return rx.toast("Vous n'etes plus dans cette salle.")
             await self._event(
                 asession,
-                self.active_id,
+                room_id,
                 "ready",
                 f"{auth.display_name} a change son statut Pret",
                 auth.account_id,
             )
             await asession.commit()
         await self._refresh()
+        return None
+
+    @rx.event
+    async def remove_player(self, account_id: int):
+        """Host-only removal of a seated guest, before the match starts."""
+        auth = await self.get_state(AuthState)
+        me = auth.account_id
+        room_id = self.active_id
+        target = int(account_id)
+        if target == me:
+            return rx.toast("Utilisez Quitter pour sortir de la salle.")
+        async with rx.asession() as asession:
+            room = (
+                await asession.execute(
+                    text(
+                        "SELECT status, host_id FROM game_room "
+                        "WHERE id = :r FOR UPDATE"
+                    ),
+                    {"r": room_id},
+                )
+            ).first()
+            if room is None:
+                return rx.toast("Cette salle n'existe plus.")
+            if int(room[1] or 0) != me:
+                return rx.toast("Seul l'hote peut retirer un joueur.")
+            if str(room[0]) not in ("open", "waiting"):
+                return rx.toast(
+                    "Impossible de retirer un joueur apres le lancement."
+                )
+            member = (
+                await asession.execute(
+                    text(
+                        """
+                        SELECT m.is_host,
+                               COALESCE(p.display_name, a.username)
+                        FROM game_room_member m
+                        JOIN account a ON a.id = m.account_id
+                        LEFT JOIN profile p ON p.account_id = a.id
+                        WHERE m.room_id = :r AND m.account_id = :a
+                          AND m.left_at IS NULL
+                        """
+                    ),
+                    {"r": room_id, "a": target},
+                )
+            ).first()
+            if member is None:
+                return rx.toast("Ce joueur n'est plus dans la salle.")
+            if bool(member[0]) or target == int(room[1] or 0):
+                return rx.toast("L'hote ne peut pas etre retire.")
+            name = str(member[1])
+            await asession.execute(
+                text(
+                    "UPDATE game_room_member SET left_at = NOW(), "
+                    "is_ready = false "
+                    "WHERE room_id = :r AND account_id = :a "
+                    "AND left_at IS NULL"
+                ),
+                {"r": room_id, "a": target},
+            )
+            await asession.execute(
+                text(
+                    """
+                    UPDATE game_room SET player_count = (
+                        SELECT COUNT(*) FROM game_room_member
+                        WHERE room_id = :r AND left_at IS NULL),
+                        updated_at = NOW()
+                    WHERE id = :r
+                    """
+                ),
+                {"r": room_id},
+            )
+            await self._event(
+                asession,
+                room_id,
+                "leave",
+                f"{name} a ete retire de la salle par l'hote",
+                me,
+            )
+            await asession.commit()
+        await self._refresh()
+        return rx.toast(f"{name} a ete retire de la salle.")
 
     @rx.event
     async def leave_room(self):
@@ -1532,6 +2128,26 @@ class RoomState(rx.State):
             minimum = 1 if slug in ("loto", "domino") else 2
             if len(order) < minimum:
                 return rx.toast(f"Il faut au moins {minimum} joueur(s).")
+            members = (
+                await asession.execute(
+                    text(
+                        "SELECT account_id, is_ready, is_host "
+                        "FROM game_room_member "
+                        "WHERE room_id = :r AND left_at IS NULL"
+                    ),
+                    {"r": self.active_id},
+                )
+            ).all()
+            unready = [
+                int(m[0])
+                for m in members
+                if not bool(m[1]) and int(m[0]) != me and not bool(m[2])
+            ]
+            if unready and slug in ("domino", "ludo", "loto"):
+                return rx.toast(
+                    f"{len(unready)} joueur(s) ne sont pas prets: "
+                    "attendez leur confirmation ou retirez-les."
+                )
             version = int(room[3] or 0)
             rules_update: dict | None = None
             if slug == "loto":
@@ -1545,7 +2161,21 @@ class RoomState(rx.State):
                     )
                 ).first()
                 if int(cards[0] or 0) == 0:
-                    return rx.toast("Achetez au moins un carton.")
+                    return rx.toast(
+                        "Achetez au moins un carton avant le tirage."
+                    )
+                holders = (
+                    await asession.execute(
+                        text(
+                            "SELECT COUNT(DISTINCT account_id) "
+                            "FROM bingo_card WHERE room_id = :r "
+                            "AND is_void = false"
+                        ),
+                        {"r": self.active_id},
+                    )
+                ).first()
+                if int(holders[0] or 0) == 0:
+                    return rx.toast("Aucun joueur ne detient de carton valide.")
                 state = engine.loto_initial_state()
                 state["phase"] = "playing"
                 seconds = int(rules.get("draw_seconds", 12))
@@ -1597,6 +2227,23 @@ class RoomState(rx.State):
                     else str(rules.get("created_at", "")),
                 }
             elif slug == "ludo":
+                try:
+                    capacity = int(
+                        rules.get("number_of_players") or int(room[10] or 4)
+                    )
+                except (TypeError, ValueError):
+                    capacity = 4
+                capacity = max(2, min(4, capacity))
+                if len(order) < 2:
+                    return rx.toast("Ludo demande au moins 2 joueurs humains.")
+                if len(order) > capacity:
+                    return rx.toast(
+                        f"Trop de joueurs: {capacity} place(s) configuree(s)."
+                    )
+                # Normalise legacy goal_pawns to the standard four pawns
+                # in both rules and state, without any schema migration.
+                rules = engine.ludo_normalize_rules(rules)
+                rules_update = rules
                 state = engine.ludo_initial_state(order, rules)
                 seconds = 30
             elif slug == "faritany":
@@ -1647,16 +2294,19 @@ class RoomState(rx.State):
     # ------------------------------------------------------------------ LOTO
     @rx.event
     def set_buy_count(self, value: str):
+        """Server-side clamp: every tier allows exactly 1 to 5 tickets."""
         try:
-            self.buy_count = max(1, min(10, int(value)))
+            self.buy_count = max(
+                LOTO_MIN_CARDS, min(LOTO_MAX_CARDS, int(value))
+            )
         except ValueError:
-            self.buy_count = 1
+            self.buy_count = LOTO_MIN_CARDS
 
     @rx.event
     async def buy_cards(self):
         auth = await self.get_state(AuthState)
         me = auth.account_id
-        count = max(1, min(10, self.buy_count))
+        count = max(LOTO_MIN_CARDS, min(LOTO_MAX_CARDS, self.buy_count))
         async with rx.asession() as asession:
             room = await self._ctx(asession, self.active_id, lock=True)
             if room is None or str(room[7]) != "loto":
@@ -1664,9 +2314,9 @@ class RoomState(rx.State):
             if str(room[2]) not in ("open", "waiting"):
                 return rx.toast("Les cartons se prennent avant le tirage.")
             rules = json.loads(str(room[1]) or "{}")
-            tier = tier_by_key(str(rules.get("tier", "bronze_lite")))
+            tier = tier_by_key(str(rules.get("tier", "bronze")))
             price = int(tier["card_price"])
-            allowance = int(tier["max_cards"])
+            allowance = LOTO_MAX_CARDS
             existing = (
                 await asession.execute(
                     text(
@@ -1680,7 +2330,8 @@ class RoomState(rx.State):
             owned = int(existing[1] or 0)
             if owned + count > allowance:
                 return rx.toast(
-                    f"{tier['label']} autorise {allowance} carton(s) maximum."
+                    f"Maximum {allowance} carton(s) par joueur "
+                    f"({tier['label']})."
                 )
             total = price * count
             ok, message, balance = await move_coins(
@@ -1741,19 +2392,25 @@ class RoomState(rx.State):
         await self._refresh()
         return rx.toast(f"{count} carton(s) ajoute(s).")
 
-    @rx.event
-    async def draw_number(self):
-        """Advance one persisted draw; usable as soon as the timer expires."""
+    async def _loto_draw_once(
+        self, manual: bool
+    ) -> tuple[bool, list[str], int, str]:
+        """Draw exactly one ball, concurrency-safe under polling.
+
+        The room row is locked FOR UPDATE, the state write is guarded by the
+        optimistic state_version and every payout uses an idempotent key, so
+        only one caller can ever win a given draw or award.
+        """
         auth = await self.get_state(AuthState)
         me = auth.account_id
         async with rx.asession() as asession:
             room = await self._ctx(asession, self.active_id, lock=True)
             if room is None or str(room[7]) != "loto":
-                return rx.toast("Tirage indisponible.")
+                return False, [], 0, "Tirage indisponible."
             if str(room[2]) not in ("active", "in_progress"):
-                return rx.toast("La partie n'est pas en cours.")
+                return False, [], 0, "La partie n'est pas en cours."
             deadline = room[17]
-            if deadline is not None and not self.is_host:
+            if deadline is not None:
                 left = (
                     await asession.execute(
                         text(
@@ -1764,13 +2421,18 @@ class RoomState(rx.State):
                     )
                 ).first()
                 if int(left[0] or 0) > 0:
-                    return rx.toast("Attendez la fin du minuteur.")
+                    host_override = manual and int(room[8] or 0) == me
+                    if not host_override:
+                        return False, [], 0, "Attendez la fin du minuteur."
             state = json.loads(str(room[0]) or "{}")
             rules = json.loads(str(room[1]) or "{}")
-            tier = tier_by_key(str(rules.get("tier", "bronze_lite")))
             version = int(room[3] or 0)
             pot = int(room[6] or 0)
-            state, number = engine.loto_draw(state)
+            try:
+                state, number = engine.loto_draw(state)
+            except engine.MoveError as exc:
+                logging.exception("Loto draw exhausted")
+                return False, [], 0, str(exc)
             drawn = state["drawn"]
             claims = list(state.get("claims", []))
 
@@ -1842,7 +2504,7 @@ class RoomState(rx.State):
                         account_id,
                         max(1, amount),
                         "game_win",
-                        f"LOTO {key} (net, frais deduits)",
+                        f"LOTO {loto_claim_label(key)} (net, frais deduits)",
                         self.active_id,
                         f"payout:{self.active_id}:{key}:{cid}",
                     )
@@ -1853,11 +2515,7 @@ class RoomState(rx.State):
                         ),
                         {"id": cid},
                     )
-                    label = {
-                        "quine": "Quine",
-                        "double_quine": "Double Quine",
-                        "full_house": "Carton plein",
-                    }[key]
+                    label = loto_claim_label(key)
                     claims.append(
                         {
                             "kind": key,
@@ -1889,6 +2547,19 @@ class RoomState(rx.State):
                     if key == "full_house":
                         winner_id = account_id
             state["claims"] = claims
+            exhausted = engine.loto_exhausted(state)
+            if not winner_id and exhausted:
+                best = (
+                    await asession.execute(
+                        text(
+                            "SELECT account_id FROM bingo_card "
+                            "WHERE room_id = :r AND is_void = false "
+                            "ORDER BY marked_count DESC, id LIMIT 1"
+                        ),
+                        {"r": self.active_id},
+                    )
+                ).first()
+                winner_id = int(best[0]) if best is not None else 0
             ok = await self._write(
                 asession,
                 self.active_id,
@@ -1900,11 +2571,11 @@ class RoomState(rx.State):
                 actor=None,
             )
             if not ok:
-                return rx.toast("Tirage concurrent detecte, reessayez.")
+                return False, [], 0, "Tirage concurrent detecte, reessayez."
             await self._event(
                 asession, self.active_id, "draw", f"Boule {number}", None
             )
-            if winner_id:
+            if winner_id or exhausted:
                 await asession.execute(
                     text(
                         """
@@ -1917,12 +2588,35 @@ class RoomState(rx.State):
                     ),
                     {"w": winner_id, "r": self.active_id},
                 )
-                await self._stats(
-                    asession, self.active_id, int(room[16]), winner_id
+                if winner_id:
+                    await self._stats(
+                        asession, self.active_id, int(room[16]), winner_id
+                    )
+                await self._event(
+                    asession,
+                    self.active_id,
+                    "settle",
+                    (
+                        f"{loto_claim_label('full_house')} remporte: tirage "
+                        "termine"
+                        if not exhausted
+                        else "90 boules tirees: tirage termine"
+                    ),
+                    None,
                 )
             await asession.commit()
             auth.coin_balance = await balance_of(asession, me)
-        await self._refresh()
+        return True, announcements, number, ""
+
+    @rx.event
+    async def draw_number(self):
+        """Guarded manual fallback: the host may advance the draw early."""
+        ok, announcements, number, message = await self._loto_draw_once(
+            manual=True
+        )
+        if not ok:
+            return rx.toast(message or "Tirage impossible.")
+        await self._refresh(allow_bots=False)
         if announcements:
             return rx.toast(" | ".join(announcements), duration=6000)
         return rx.toast(f"Boule {number}")
@@ -2155,6 +2849,149 @@ class RoomState(rx.State):
     @rx.event
     def close_round_result(self):
         self.round_result_open = False
+
+    # ------------------------------------------ chat / audio / history tools
+    @rx.event
+    async def send_chat(self, form_data: dict[str, Any]):
+        """Compact room chat stored as game_room_event(event_type='chat')."""
+        auth = await self.get_state(AuthState)
+        body = " ".join(str(form_data.get("message", "")).split())[:240]
+        if not body:
+            return rx.toast("Ecrivez un message avant d'envoyer.")
+        if self.active_id == 0:
+            return rx.toast("Salle introuvable.")
+        async with rx.asession() as asession:
+            member = (
+                await asession.execute(
+                    text(
+                        "SELECT 1 FROM game_room_member "
+                        "WHERE room_id = :r AND account_id = :a "
+                        "AND left_at IS NULL"
+                    ),
+                    {"r": self.active_id, "a": auth.account_id},
+                )
+            ).first()
+            if member is None:
+                return rx.toast("Seuls les joueurs de la salle peuvent ecrire.")
+            await self._event(
+                asession, self.active_id, "chat", body, auth.account_id
+            )
+            await asession.commit()
+        await self._refresh(allow_bots=False)
+        return None
+
+    @rx.event
+    def toggle_audio(self):
+        self.audio_on = not self.audio_on
+
+    @rx.event
+    def toggle_history(self):
+        self.history_open = not self.history_open
+        if self.history_open:
+            self.replay_open = False
+
+    @rx.event
+    def open_replay(self):
+        self.replay_open = True
+        self.history_open = True
+        self.result_dismissed = True
+
+    @rx.event
+    def close_replay(self):
+        self.replay_open = False
+
+    @rx.event
+    def dismiss_result(self):
+        self.result_dismissed = True
+
+    @rx.event
+    async def rematch(self):
+        """Open a brand new waiting room with identical settings.
+
+        The finished room is never reset and never settled twice: a new room
+        is created with a fresh unique code and the caller joins it as host
+        through the normal room lifecycle, so nobody is charged silently.
+        """
+        auth = await self.get_state(AuthState)
+        me = auth.account_id
+        if me == 0:
+            yield rx.redirect("/login")
+            return
+        new_id = 0
+        new_code = ""
+        async with rx.asession() as asession:
+            room = await self._ctx(asession, self.active_id)
+            if room is None:
+                yield rx.toast("Cette salle n'existe plus.")
+                return
+            if str(room[2]) != "finished":
+                yield rx.toast("La revanche s'ouvre apres la fin de la partie.")
+                return
+            rules = json.loads(str(room[1]) or "{}")
+            for volatile in ("bots", "order", "game_state", "created_at"):
+                rules.pop(volatile, None)
+            base_name = str(room[12]) or str(room[13])
+            for _ in range(10):
+                code = secrets.token_hex(3).upper()
+                taken = (
+                    await asession.execute(
+                        text("SELECT 1 FROM game_room WHERE code = :c LIMIT 1"),
+                        {"c": code},
+                    )
+                ).first()
+                if taken is not None:
+                    continue
+                inserted = (
+                    await asession.execute(
+                        text(
+                            """
+                            INSERT INTO game_room (game_id, host_id, code,
+                                name, status, is_private, password_hash,
+                                max_players, player_count, entry_coins,
+                                rules_json, state_json, round_number,
+                                pot_coins, state_version, created_at,
+                                updated_at)
+                            VALUES (:g, :h, :code, :name, 'waiting', false,
+                                '', :max_players, 0, :entry, :rules, '{}', 0,
+                                0, 0, NOW(), NOW())
+                            RETURNING id
+                            """
+                        ),
+                        {
+                            "g": int(room[16]),
+                            "h": me,
+                            "code": code,
+                            "name": f"Revanche - {base_name}"[:80],
+                            "max_players": max(2, int(room[10] or 2)),
+                            "entry": int(room[9] or 0),
+                            "rules": json.dumps(rules),
+                        },
+                    )
+                ).first()
+                new_id = int(inserted[0])
+                new_code = code
+                break
+            if not new_id:
+                await asession.rollback()
+                yield rx.toast("Impossible de creer la revanche. Reessayez.")
+                return
+            await self._event(
+                asession,
+                self.active_id,
+                "system",
+                f"{auth.display_name} a ouvert une revanche (code {new_code})",
+                me,
+            )
+            await asession.commit()
+        from app.states.games_state import GamesState
+
+        self.polling = False
+        self.active_id = 0
+        yield rx.toast(
+            f"Salle de revanche {new_code} creee: invitez vos adversaires.",
+            duration=6000,
+        )
+        yield GamesState.join_room(new_id, "")
 
     # ------------------------------------------------------------------ LUDO
     @rx.event

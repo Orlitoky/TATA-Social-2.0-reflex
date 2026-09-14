@@ -11,8 +11,9 @@ from app.components.boards import (
     panel,
     section_title,
 )
-from app.components.game_lobby import game_lobby
 from app.components.game_shell import dark_page, jewel_tag
+from app.components.table_lobby import table_lobby
+from app.components.tata_table import tata_room
 from app.components.ui import avatar
 from app.states.room_state import ActivityRow, PlayerRow, ReactionRow, RoomState
 
@@ -338,12 +339,21 @@ def room_head() -> rx.Component:
 def room_body() -> rx.Component:
     return rx.el.div(
         rx.cond(
-            RoomState.error != "",
+            (RoomState.error != "") & ~RoomState.is_game_lobby,
             rx.el.div(
                 rx.icon("triangle-alert", class_name="h-5 w-5 text-rose-400"),
                 rx.el.p(
                     RoomState.error,
                     class_name="text-sm font-semibold text-rose-300",
+                ),
+                rx.el.button(
+                    "Reessayer",
+                    on_click=RoomState.manual_refresh,
+                    class_name=(
+                        "ml-auto rounded-lg border border-rose-400/50 px-3 "
+                        "py-1.5 text-xs font-bold text-rose-200 "
+                        "hover:bg-rose-500/10"
+                    ),
                 ),
                 class_name=(
                     "flex items-center gap-2 rounded-2xl border "
@@ -353,100 +363,109 @@ def room_body() -> rx.Component:
             rx.fragment(),
         ),
         rx.cond(
-            RoomState.loaded & RoomState.is_domino_lobby,
-            game_lobby(),
+            RoomState.loaded & RoomState.is_game_lobby,
+            table_lobby(),
             rx.fragment(),
         ),
         rx.cond(
-            RoomState.loaded & ~RoomState.is_domino_lobby,
-            rx.el.div(
-                room_head(),
-                rx.el.div(
-                    rx.el.div(
-                        game_board(),
-                        rx.cond(
-                            RoomState.slug == "loto",
-                            rx.el.div(loto_controls(), class_name="mt-4"),
-                            rx.fragment(),
-                        ),
-                        class_name="min-w-0 flex-1",
-                    ),
-                    rx.el.div(
-                        panel(
-                            section_title("users", "Joueurs"),
-                            rx.cond(
-                                RoomState.players.length() > 0,
-                                rx.el.div(
-                                    rx.foreach(RoomState.players, player_tile),
-                                    class_name="flex flex-col gap-2",
-                                ),
-                                rx.el.p(
-                                    "Salle vide.",
-                                    class_name="text-sm text-zinc-500",
-                                ),
-                            ),
-                        ),
-                        reaction_panel(),
-                        panel(
-                            section_title("activity", "Activite"),
-                            rx.cond(
-                                RoomState.activity.length() > 0,
-                                rx.el.div(
-                                    rx.foreach(
-                                        RoomState.activity, activity_row
-                                    ),
-                                    class_name=(
-                                        "flex max-h-64 flex-col "
-                                        "overflow-y-auto divide-y "
-                                        "divide-zinc-800/60"
-                                    ),
-                                ),
-                                rx.el.p(
-                                    "Aucune activite.",
-                                    class_name="text-sm text-zinc-500",
-                                ),
-                            ),
-                        ),
-                        rx.cond(
-                            RoomState.announcements.length() > 0,
-                            panel(
-                                section_title("megaphone", "Annonces"),
-                                rx.foreach(
-                                    RoomState.announcements,
-                                    lambda item: rx.el.p(
-                                        item,
-                                        class_name=(
-                                            "text-[11px] font-semibold "
-                                            "text-emerald-300"
-                                        ),
-                                    ),
-                                ),
-                            ),
-                            rx.fragment(),
-                        ),
-                        class_name="flex w-full flex-col gap-4 lg:w-80 shrink-0",
-                    ),
-                    class_name="mt-4 flex flex-col gap-4 lg:flex-row",
-                ),
-                class_name="w-full",
+            RoomState.loaded & ~RoomState.is_game_lobby,
+            rx.cond(
+                RoomState.is_tata_game,
+                tata_room(),
+                legacy_room(),
             ),
             rx.fragment(),
         ),
         rx.cond(
             RoomState.loaded,
             rx.fragment(),
-            rx.el.div(
-                rx.el.div(
-                    class_name="h-24 animate-pulse rounded-2xl bg-zinc-900"
-                ),
-                rx.el.div(
-                    class_name="mt-4 h-72 animate-pulse rounded-2xl bg-zinc-900"
-                ),
-                class_name="w-full",
-            ),
+            loading_skeleton(),
         ),
-        domino_result_modal(),
+        rx.cond(
+            RoomState.is_tata_game,
+            rx.fragment(),
+            domino_result_modal(),
+        ),
         class_name="flex w-full flex-col gap-4",
+    )
+
+
+def loading_skeleton() -> rx.Component:
+    return rx.el.div(
+        rx.el.div(class_name="h-24 animate-pulse rounded-2xl bg-white/5"),
+        rx.el.div(class_name="mt-4 h-72 animate-pulse rounded-2xl bg-white/5"),
+        class_name="w-full",
+    )
+
+
+def legacy_room() -> rx.Component:
+    return rx.el.div(
+        room_head(),
+        rx.el.div(
+            rx.el.div(
+                game_board(),
+                rx.cond(
+                    RoomState.slug == "loto",
+                    rx.el.div(loto_controls(), class_name="mt-4"),
+                    rx.fragment(),
+                ),
+                class_name="min-w-0 flex-1",
+            ),
+            rx.el.div(
+                panel(
+                    section_title("users", "Joueurs"),
+                    rx.cond(
+                        RoomState.players.length() > 0,
+                        rx.el.div(
+                            rx.foreach(RoomState.players, player_tile),
+                            class_name="flex flex-col gap-2",
+                        ),
+                        rx.el.p(
+                            "Salle vide.",
+                            class_name="text-sm text-zinc-500",
+                        ),
+                    ),
+                ),
+                reaction_panel(),
+                panel(
+                    section_title("activity", "Activite"),
+                    rx.cond(
+                        RoomState.activity.length() > 0,
+                        rx.el.div(
+                            rx.foreach(RoomState.activity, activity_row),
+                            class_name=(
+                                "flex max-h-64 flex-col "
+                                "overflow-y-auto divide-y "
+                                "divide-zinc-800/60"
+                            ),
+                        ),
+                        rx.el.p(
+                            "Aucune activite.",
+                            class_name="text-sm text-zinc-500",
+                        ),
+                    ),
+                ),
+                rx.cond(
+                    RoomState.announcements.length() > 0,
+                    panel(
+                        section_title("megaphone", "Annonces"),
+                        rx.foreach(
+                            RoomState.announcements,
+                            lambda item: rx.el.p(
+                                item,
+                                class_name=(
+                                    "text-[11px] font-semibold text-emerald-300"
+                                ),
+                            ),
+                        ),
+                    ),
+                    rx.fragment(),
+                ),
+                class_name="flex w-full flex-col gap-4 lg:w-80 shrink-0",
+            ),
+            class_name="mt-4 flex flex-col gap-4 lg:flex-row",
+        ),
+        class_name="w-full",
     )
 
 

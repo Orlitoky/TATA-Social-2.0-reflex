@@ -1,3 +1,40 @@
+@keyframes tataPop {
+  from {
+    transform: scale(0.82);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes tataRise {
+  from {
+    transform: translateY(10px) scale(0.98);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.tata-pop {
+  animation: tataPop 180ms ease-out both;
+}
+
+.tata-rise {
+  animation: tataRise 220ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tata-pop,
+  .tata-rise {
+    animation: none;
+  }
+}
+
 @keyframes slideUp {
   from {
     transform: translateY(16px);

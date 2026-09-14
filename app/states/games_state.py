@@ -11,7 +11,18 @@ import reflex as rx
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.games_catalog import CATALOG, LOTO_TIERS, MATY_TARGETS, game_by_slug
+from app.games_catalog import (
+    CATALOG,
+    DISCOVERY_CATEGORIES,
+    LOTO_TIERS,
+    MATY_TARGETS,
+    VISIBLE_SLUGS,
+    detail_howto,
+    detail_meta,
+    detail_rules,
+    discovery_meta,
+    game_by_slug,
+)
 from app.security import hash_password
 from app.states.auth_state import AuthState
 from app.wallet import balance_of, move_coins
@@ -29,6 +40,16 @@ class GameCard(TypedDict):
     entry_coins: int
     open_rooms: int
     live_players: int
+    cover: str
+    subtitle: str
+    mode: str
+    category_label: str
+    accent: str
+    featured: bool
+    player_range: str
+    live_label: str
+    is_live: bool
+    search_blob: str
 
 
 class RoomRow(TypedDict):
@@ -61,6 +82,35 @@ class GamesState(rx.State):
     create_open: bool = False
     join_code: str = ""
     referral_open: bool = False
+    search_text: str = ""
+    category: str = "tous"
+    categories: list[dict[str, str]] = DISCOVERY_CATEGORIES
+
+    # ---- bright game detail page ---------------------------------------
+    slug_valid: bool = True
+    panel_tab: str = "rules"
+    status_filter: str = "all"
+    secret_room_id: int = 0
+    secret_room_name: str = ""
+    room_secret: str = ""
+    quick_playing: bool = False
+    status_filters: list[dict[str, str]] = [
+        {"value": "all", "label": "Toutes"},
+        {"value": "open", "label": "Ouvertes"},
+        {"value": "waiting", "label": "Attente"},
+        {"value": "active", "label": "En cours"},
+    ]
+
+    # ---- generic (Ludo / Loto) creation sheet ---------------------------
+    create_sheet_open: bool = False
+    create_busy: bool = False
+    create_error: str = ""
+    gen_name: str = ""
+    gen_private: bool = False
+    gen_secret: str = ""
+    gen_players: int = 4
+    gen_entry: str = "100"
+    gen_tier: str = "bronze"
 
     # ---- Domino "Creer une partie" bottom sheet draft -------------------
     domino_sheet_open: bool = False
@@ -96,7 +146,7 @@ class GamesState(rx.State):
         {
             "key": "draw",
             "label": "Pioche",
-            "hint": "3 dominos",
+            "hint": "7 tuiles, pioche large",
             "icon": "layers",
         },
     ]
@@ -166,6 +216,78 @@ class GamesState(rx.State):
         return str(game_by_slug(self.active_slug)["description"])
 
     @rx.var
+    def detail_cover(self) -> str:
+        return str(detail_meta(self.active_slug)["cover"])
+
+    @rx.var
+    def detail_mode(self) -> str:
+        return str(detail_meta(self.active_slug)["mode"])
+
+    @rx.var
+    def detail_player_range(self) -> str:
+        return str(detail_meta(self.active_slug)["player_range"])
+
+    @rx.var
+    def detail_overview(self) -> str:
+        return str(detail_meta(self.active_slug)["overview"])
+
+    @rx.var
+    def detail_stake(self) -> str:
+        return str(detail_meta(self.active_slug)["stake"])
+
+    @rx.var
+    def detail_rules_list(self) -> list[str]:
+        return detail_rules(self.active_slug)
+
+    @rx.var
+    def detail_howto_list(self) -> list[str]:
+        return detail_howto(self.active_slug)
+
+    @rx.var
+    def showing_rules(self) -> bool:
+        return self.panel_tab == "rules"
+
+    @rx.var
+    def default_entry_label(self) -> str:
+        if self.active_slug not in VISIBLE_SLUGS:
+            return "0"
+        return f"{int(game_by_slug(self.active_slug)['default_entry_coins'])}"
+
+    @rx.var
+    def visible_rooms(self) -> list[RoomRow]:
+        if self.status_filter == "all":
+            return self.rooms
+        if self.status_filter == "active":
+            return [
+                r
+                for r in self.rooms
+                if r["status"] in ("active", "in_progress")
+            ]
+        return [r for r in self.rooms if r["status"] == self.status_filter]
+
+    @rx.var
+    def open_room_count(self) -> int:
+        return len(
+            [
+                r
+                for r in self.rooms
+                if r["status"] in ("open", "waiting") and not r["full"]
+            ]
+        )
+
+    @rx.var
+    def live_player_count(self) -> int:
+        return sum(r["player_count"] for r in self.rooms)
+
+    @rx.var
+    def create_player_options(self) -> list[int]:
+        if self.active_slug == "ludo":
+            return [2, 3, 4]
+        if self.active_slug == "loto":
+            return [2, 4, 6, 8, 10, 12]
+        return [2, 3]
+
+    @rx.var
     def is_loto(self) -> bool:
         return self.active_slug == "loto"
 
@@ -173,13 +295,85 @@ class GamesState(rx.State):
     def is_domino(self) -> bool:
         return self.active_slug == "domino"
 
+    # ------------------------------------------------ discovery filtering
+    @rx.event
+    def set_search_text(self, value: str):
+        self.search_text = value[:60]
+
+    @rx.event
+    def clear_search(self):
+        self.search_text = ""
+
+    @rx.event
+    def set_category(self, value: str):
+        allowed = {c["value"] for c in DISCOVERY_CATEGORIES}
+        if value in allowed:
+            self.category = value
+
+    def _matches(self, card: GameCard) -> bool:
+        query = self.search_text.strip().lower()
+        if query and query not in card["search_blob"]:
+            return False
+        if self.category != "tous" and card["category"] != self.category:
+            return False
+        return True
+
+    @rx.var
+    def filtered_cards(self) -> list[GameCard]:
+        return [c for c in self.cards if self._matches(c)]
+
+    @rx.var
+    def has_results(self) -> bool:
+        return len(self.filtered_cards) > 0
+
+    @rx.var
+    def is_filtering(self) -> bool:
+        return bool(self.search_text.strip()) or self.category != "tous"
+
+    @rx.var
+    def featured_card(self) -> list[GameCard]:
+        """Single-item list so the UI can foreach the editorial lead."""
+        for card in self.cards:
+            if card["featured"]:
+                return [card]
+        return self.cards[:1]
+
+    @rx.var
+    def supporting_cards(self) -> list[GameCard]:
+        lead = {c["slug"] for c in self.featured_card}
+        return [c for c in self.cards if c["slug"] not in lead]
+
+    @rx.var
+    def popular_cards(self) -> list[GameCard]:
+        return sorted(
+            self.cards,
+            key=lambda c: (
+                -c["live_players"],
+                -c["open_rooms"],
+                c["name"],
+            ),
+        )
+
+    @rx.var
+    def total_open_rooms(self) -> int:
+        return sum(c["open_rooms"] for c in self.cards)
+
+    @rx.var
+    def total_live_players(self) -> int:
+        return sum(c["live_players"] for c in self.cards)
+
     @rx.var
     def referral_code(self) -> str:
         return f"TATA-{self.router.session.client_token[:6].upper()}"
 
     # ---------------------------------------------------------------- seeding
-    async def _seed(self, asession, me_id: int) -> None:
+    async def _seed(
+        self, asession, me_id: int, slugs: list[str] | None = None
+    ) -> None:
+        allow = set(slugs) if slugs else None
         for entry in CATALOG:
+            if allow is not None and str(entry["slug"]) not in allow:
+                continue
             await asession.execute(
                 text(
                     """
@@ -221,6 +415,8 @@ class GamesState(rx.State):
         ).first()
         host_id = int(host_row[0]) if host_row is not None else me_id
         for game_id, slug, max_players in rows:
+            if allow is not None and str(slug) not in allow:
+                continue
             existing = (
                 await asession.execute(
                     text(
@@ -237,7 +433,7 @@ class GamesState(rx.State):
                 rules: dict[str, Any] = {}
                 entry = int(catalog["default_entry_coins"])
                 if slug == "loto":
-                    tier = LOTO_TIERS[index * 2]
+                    tier = LOTO_TIERS[index]
                     rules = {"tier": tier["key"], "draw_seconds": 12}
                     entry = int(tier["card_price"])
                 elif slug == "domino":
@@ -247,7 +443,7 @@ class GamesState(rx.State):
                         "one_on_blank": index == 1,
                     }
                 elif slug == "ludo":
-                    rules = {"goal_pawns": 3}
+                    rules = {"goal_pawns": 4}
                 elif slug in ("faritany", "points"):
                     rules = {"turn_seconds": 15}
                 await asession.execute(
@@ -284,7 +480,7 @@ class GamesState(rx.State):
         self.error = ""
         self.active_slug = ""
         async with rx.asession() as asession:
-            await self._seed(asession, auth.account_id)
+            await self._seed(asession, auth.account_id, VISIBLE_SLUGS)
             await asession.commit()
             rows = (
                 await asession.execute(
@@ -300,6 +496,7 @@ class GamesState(rx.State):
                         LEFT JOIN game_room r ON r.game_id = g.id
                              AND r.status <> 'closed'
                         WHERE g.is_active = true
+                          AND g.slug IN ('domino', 'ludo', 'loto')
                         GROUP BY g.id, g.slug, g.name, g.description,
                                  g.category, g.min_players, g.max_players,
                                  g.default_entry_coins
@@ -309,28 +506,66 @@ class GamesState(rx.State):
                 )
             ).all()
         catalog_index = {str(c["slug"]): c for c in CATALOG}
-        self.cards = [
-            {
-                "slug": str(r[0]),
-                "name": str(r[1]),
-                "description": str(r[2]),
-                "category": str(r[3]),
-                "tag": str(catalog_index.get(str(r[0]), {}).get("tag", "Live")),
-                "medallion": str(
-                    catalog_index.get(str(r[0]), {}).get("medallion", "gem")
-                ),
-                "min_players": int(r[4]),
-                "max_players": int(r[5]),
-                "entry_coins": int(r[6]),
-                "open_rooms": int(r[7] or 0),
-                "live_players": int(r[8] or 0),
-            }
-            for r in rows
-        ]
-        await self._load_my_rooms(auth.account_id)
+        cards: list[GameCard] = []
+        for r in rows:
+            slug = str(r[0])
+            if slug not in VISIBLE_SLUGS:
+                continue
+            meta = discovery_meta(slug)
+            open_rooms = int(r[7] or 0)
+            live_players = int(r[8] or 0)
+            name = str(r[1])
+            description = str(r[2])
+            mode = str(meta["mode"])
+            cards.append(
+                {
+                    "slug": slug,
+                    "name": name,
+                    "description": description,
+                    "category": str(r[3]),
+                    "tag": str(catalog_index.get(slug, {}).get("tag", "Live")),
+                    "medallion": str(
+                        catalog_index.get(slug, {}).get("medallion", "gem")
+                    ),
+                    "min_players": int(r[4]),
+                    "max_players": int(r[5]),
+                    "entry_coins": int(r[6]),
+                    "open_rooms": open_rooms,
+                    "live_players": live_players,
+                    "cover": str(meta["cover"]),
+                    "subtitle": str(meta["subtitle"]),
+                    "mode": mode,
+                    "category_label": str(meta["category_label"]),
+                    "accent": str(meta["accent"]),
+                    "featured": bool(meta["featured"]),
+                    "player_range": f"{int(r[4])}-{int(r[5])} joueurs",
+                    "live_label": (
+                        f"{live_players} en direct"
+                        if live_players > 0
+                        else (
+                            f"{open_rooms} salle(s) ouverte(s)"
+                            if open_rooms > 0
+                            else "Aucune salle ouverte"
+                        )
+                    ),
+                    "is_live": live_players > 0 or open_rooms > 0,
+                    "search_blob": (
+                        f"{name} {description} {mode} "
+                        f"{meta['subtitle']} {meta['category_label']}"
+                    ).lower(),
+                }
+            )
+        cards.sort(key=lambda c: int(discovery_meta(c["slug"])["order"]))
+        self.cards = cards
+        await self._load_my_rooms(auth.account_id, True)
         self.loading = False
 
-    async def _load_my_rooms(self, account_id: int) -> None:
+    async def _load_my_rooms(
+        self, account_id: int, only_visible: bool = False
+    ) -> None:
+        slug_clause = (
+            " AND g.slug IN ('domino', 'ludo', 'loto')" if only_visible else ""
+        )
         async with rx.asession() as asession:
             rows = (
                 await asession.execute(
@@ -348,6 +583,9 @@ class GamesState(rx.State):
                         LEFT JOIN profile p ON p.account_id = a.id
                         WHERE m.account_id = :me AND m.left_at IS NULL
                           AND r.status <> 'closed'
+                        """
+                        + slug_clause
+                        + """
                         ORDER BY r.updated_at DESC
                         LIMIT 12
                         """
@@ -403,8 +641,20 @@ class GamesState(rx.State):
         auth = await self.get_state(AuthState)
         if not auth.account_id:
             return
-        slug = str(self.router.page.params.get("game_slug", "")) or "loto"
+        slug = str(self.router.page.params.get("game_slug", "")).lower()
+        if slug not in VISIBLE_SLUGS:
+            self.active_slug = ""
+            self.slug_valid = False
+            self.rooms = []
+            self.loading = False
+            self.error = "Ce jeu n'est pas disponible."
+            return rx.redirect("/games")
+        self.slug_valid = True
         self.active_slug = slug
+        self.panel_tab = "rules"
+        self.status_filter = "all"
+        self.secret_room_id = 0
+        self.room_secret = ""
         self.loading = True
         self.error = ""
         async with rx.asession() as asession:
@@ -690,6 +940,347 @@ class GamesState(rx.State):
         yield rx.toast("Partie creee. Bienvenue dans la salle d'attente.")
         yield rx.redirect(f"/game/room/{room_id}")
 
+    # ------------------------------------------------ detail page controls
+    @rx.event
+    def set_panel_tab(self, value: str):
+        if value in ("rules", "howto"):
+            self.panel_tab = value
+
+    @rx.event
+    def set_status_filter(self, value: str):
+        if value in {f["value"] for f in self.status_filters}:
+            self.status_filter = value
+
+    @rx.event
+    def open_secret_dialog(self, room_id: int, room_name: str):
+        self.secret_room_id = room_id
+        self.secret_room_name = room_name
+        self.room_secret = ""
+        self.error = ""
+
+    @rx.event
+    def close_secret_dialog(self):
+        self.secret_room_id = 0
+        self.room_secret = ""
+
+    @rx.event
+    def set_room_secret(self, value: str):
+        self.room_secret = value.strip()[:40]
+
+    @rx.event
+    def submit_room_secret(self):
+        if not self.room_secret:
+            self.error = "Entrez le code d'acces de la salle privee."
+            return rx.toast("Entrez le code d'acces.")
+        room_id = self.secret_room_id
+        secret = self.room_secret
+        self.secret_room_id = 0
+        self.room_secret = ""
+        return GamesState.join_room(room_id, secret)
+
+    @rx.event
+    def copy_code(self, code: str):
+        return [
+            rx.set_clipboard(code),
+            rx.toast(f"Code {code} copie.", duration=3000),
+        ]
+
+    # -------------------------------------------------------- quick play
+    async def _insert_public_room(
+        self, asession, slug: str, host_id: int, host_name: str
+    ) -> int:
+        catalog = game_by_slug(slug)
+        game_row = (
+            await asession.execute(
+                text("SELECT id FROM game WHERE slug = :s"), {"s": slug}
+            )
+        ).first()
+        if game_row is None:
+            return 0
+        rules: dict[str, Any] = {}
+        entry = int(catalog["default_entry_coins"])
+        max_players = int(catalog["max_players"])
+        if slug == "loto":
+            tier = LOTO_TIERS[0]
+            rules = {"tier": tier["key"], "draw_seconds": 12}
+            entry = int(tier["card_price"])
+            max_players = 8
+        elif slug == "ludo":
+            rules = {"goal_pawns": 4}
+            max_players = 4
+        elif slug == "domino":
+            rules = {
+                "game_mode": "classic",
+                "target_score": 50,
+                "maty": 50,
+                "number_of_players": 2,
+                "no_double_six": False,
+                "one_on_blank": False,
+                "fill_with_bots": False,
+                "game_state": "waiting",
+            }
+            max_players = 2
+        for _ in range(8):
+            code = secrets.token_hex(3).upper()
+            taken = (
+                await asession.execute(
+                    text("SELECT 1 FROM game_room WHERE code = :c LIMIT 1"),
+                    {"c": code},
+                )
+            ).first()
+            if taken is not None:
+                continue
+            inserted = (
+                await asession.execute(
+                    text(
+                        """
+                        INSERT INTO game_room (game_id, host_id, code, name,
+                            status, is_private, password_hash, max_players,
+                            player_count, entry_coins, rules_json, state_json,
+                            round_number, pot_coins, state_version,
+                            created_at, updated_at)
+                        VALUES (:g, :h, :code, :name, 'waiting', false, '',
+                            :max_players, 0, :entry, :rules, '{}', 0, 0, 0,
+                            NOW(), NOW())
+                        RETURNING id
+                        """
+                    ),
+                    {
+                        "g": int(game_row[0]),
+                        "h": host_id,
+                        "code": code,
+                        "name": f"{catalog['name']} de {host_name}",
+                        "max_players": max_players,
+                        "entry": entry,
+                        "rules": json.dumps(rules),
+                    },
+                )
+            ).first()
+            return int(inserted[0])
+        return 0
+
+    @rx.event
+    async def quick_play(self):
+        """Join the best joinable public room, or create one and join it."""
+        auth = await self.get_state(AuthState)
+        if not auth.account_id:
+            return rx.redirect("/login")
+        slug = self.active_slug
+        if slug not in VISIBLE_SLUGS:
+            return rx.toast("Ce jeu n'est pas disponible.")
+        self.quick_playing = True
+        self.error = ""
+        room_id = 0
+        try:
+            async with rx.asession() as asession:
+                row = (
+                    await asession.execute(
+                        text(
+                            """
+                            SELECT r.id
+                            FROM game_room r
+                            JOIN game g ON g.id = r.game_id
+                            WHERE g.slug = :s
+                              AND r.is_private = false
+                              AND r.status IN ('open', 'waiting')
+                              AND r.player_count < r.max_players
+                            ORDER BY
+                              CASE r.status WHEN 'waiting' THEN 0 ELSE 1 END,
+                              r.player_count DESC,
+                              r.updated_at DESC
+                            LIMIT 1
+                            """
+                        ),
+                        {"s": slug},
+                    )
+                ).first()
+                if row is not None:
+                    room_id = int(row[0])
+                else:
+                    room_id = await self._insert_public_room(
+                        asession, slug, auth.account_id, auth.display_name
+                    )
+                    if not room_id:
+                        await asession.rollback()
+                        self.quick_playing = False
+                        self.error = "Impossible de creer une salle rapide."
+                        return rx.toast("Impossible de creer une salle.")
+                    await asession.commit()
+        except SQLAlchemyError as exc:
+            logging.exception(f"Error: {exc}")
+            self.quick_playing = False
+            self.error = "Quick Play a echoue. Reessayez."
+            return rx.toast("Quick Play a echoue.")
+        self.quick_playing = False
+        return GamesState.join_room(room_id, "")
+
+    # ------------------------------------------- generic creation sheet
+    @rx.event
+    def open_create_sheet(self):
+        self.create_error = ""
+        self.create_busy = False
+        self.gen_name = ""
+        self.gen_private = False
+        self.gen_secret = ""
+        if self.active_slug == "ludo":
+            self.gen_players = 4
+            self.gen_entry = "100"
+        else:
+            self.gen_players = 8
+            self.gen_entry = "200"
+            self.gen_tier = "bronze"
+        self.create_sheet_open = True
+
+    @rx.event
+    def close_create_sheet(self):
+        self.create_sheet_open = False
+        self.create_error = ""
+        self.create_busy = False
+
+    @rx.event
+    def set_gen_name(self, value: str):
+        self.gen_name = value[:80]
+        self.create_error = ""
+
+    @rx.event
+    def toggle_gen_private(self):
+        self.gen_private = not self.gen_private
+        self.create_error = ""
+
+    @rx.event
+    def set_gen_secret(self, value: str):
+        self.gen_secret = value.strip()[:40]
+        self.create_error = ""
+
+    @rx.event
+    def set_gen_players(self, value: int):
+        self.gen_players = int(value)
+        self.create_error = ""
+
+    @rx.event
+    def set_gen_entry(self, value: str):
+        self.gen_entry = "".join(c for c in value if c.isdigit())[:4]
+        self.create_error = ""
+
+    @rx.event
+    def set_gen_tier(self, value: str):
+        for tier in LOTO_TIERS:
+            if tier["key"] == value:
+                self.gen_tier = value
+                self.gen_entry = str(tier["card_price"])
+        self.create_error = ""
+
+    @rx.event
+    async def submit_generic_room(self):
+        auth = await self.get_state(AuthState)
+        if not auth.account_id:
+            return rx.redirect("/login")
+        slug = self.active_slug
+        if slug not in ("ludo", "loto"):
+            self.create_error = "Utilisez la feuille dediee a ce jeu."
+            return
+        allowed = [2, 3, 4] if slug == "ludo" else [2, 4, 6, 8, 10, 12]
+        if self.gen_players not in allowed:
+            self.create_error = "Nombre de joueurs invalide pour ce jeu."
+            return
+        if self.gen_private and len(self.gen_secret) < 4:
+            self.create_error = (
+                "Le code d'acces prive doit contenir au moins 4 caracteres."
+            )
+            return
+        catalog = game_by_slug(slug)
+        rules: dict[str, Any] = {}
+        entry = int(self.gen_entry or catalog["default_entry_coins"])
+        if slug == "loto":
+            rules = {"tier": self.gen_tier, "draw_seconds": 12}
+            for tier in LOTO_TIERS:
+                if tier["key"] == self.gen_tier:
+                    entry = int(tier["card_price"])
+        else:
+            # Standard Ludo: always four pawns, never configurable.
+            rules = {"goal_pawns": 4}
+        entry = max(0, min(5000, entry))
+        self.create_busy = True
+        self.create_error = ""
+        room_id = 0
+        try:
+            async with rx.asession() as asession:
+                game_row = (
+                    await asession.execute(
+                        text("SELECT id FROM game WHERE slug = :s"),
+                        {"s": slug},
+                    )
+                ).first()
+                if game_row is None:
+                    self.create_busy = False
+                    self.create_error = "Jeu introuvable."
+                    return
+                for _ in range(8):
+                    code = secrets.token_hex(3).upper()
+                    taken = (
+                        await asession.execute(
+                            text(
+                                "SELECT 1 FROM game_room WHERE code = :c "
+                                "LIMIT 1"
+                            ),
+                            {"c": code},
+                        )
+                    ).first()
+                    if taken is not None:
+                        continue
+                    inserted = (
+                        await asession.execute(
+                            text(
+                                """
+                                INSERT INTO game_room (game_id, host_id, code,
+                                    name, status, is_private, password_hash,
+                                    max_players, player_count, entry_coins,
+                                    rules_json, state_json, round_number,
+                                    pot_coins, state_version, created_at,
+                                    updated_at)
+                                VALUES (:g, :h, :code, :name, 'waiting',
+                                    :private, :hash, :max_players, 0, :entry,
+                                    :rules, '{}', 0, 0, 0, NOW(), NOW())
+                                RETURNING id
+                                """
+                            ),
+                            {
+                                "g": int(game_row[0]),
+                                "h": auth.account_id,
+                                "code": code,
+                                "name": self.gen_name.strip()
+                                or f"{catalog['name']} de {auth.display_name}",
+                                "private": self.gen_private,
+                                "hash": hash_password(self.gen_secret)
+                                if self.gen_private
+                                else "",
+                                "max_players": self.gen_players,
+                                "entry": entry,
+                                "rules": json.dumps(rules),
+                            },
+                        )
+                    ).first()
+                    room_id = int(inserted[0])
+                    break
+                if not room_id:
+                    await asession.rollback()
+                    self.create_busy = False
+                    self.create_error = (
+                        "Impossible de generer un code unique. Reessayez."
+                    )
+                    return
+                await asession.commit()
+        except SQLAlchemyError as exc:
+            logging.exception(f"Error: {exc}")
+            self.create_busy = False
+            self.create_error = "La creation a echoue. Reessayez."
+            return
+        self.create_busy = False
+        self.create_sheet_open = False
+        secret = self.gen_secret if self.gen_private else ""
+        self.gen_secret = ""
+        return GamesState.join_room(room_id, secret)
+
     @rx.event
     def toggle_referral(self):
         self.referral_open = not self.referral_open
@@ -726,7 +1317,7 @@ class GamesState(rx.State):
 
         rules: dict[str, Any] = {}
         if slug == "loto":
-            tier_key = str(form_data.get("tier", "bronze_lite"))
+            tier_key = str(form_data.get("tier", "bronze"))
             rules = {"tier": tier_key, "draw_seconds": 12}
             for tier in LOTO_TIERS:
                 if tier["key"] == tier_key:
@@ -740,7 +1331,7 @@ class GamesState(rx.State):
             }
         elif slug == "ludo":
             rules = {
-                "goal_pawns": int(form_data.get("goal_pawns") or 3),
+                "goal_pawns": 4,
                 "color": str(form_data.get("color", "red")),
             }
         elif slug in ("faritany", "points"):
@@ -798,9 +1389,14 @@ class GamesState(rx.State):
 
     @rx.event
     async def join_by_code(self):
-        code = self.join_code
+        code = self.join_code.strip().upper()
         if not code:
+            self.error = "Entrez un code de salle."
             return rx.toast("Entrez un code de salle.")
+        if len(code) < 4 or not code.isalnum():
+            self.error = "Code invalide: 4 caracteres alphanumeriques minimum."
+            return rx.toast("Code de salle invalide.")
+        self.error = ""
         async with rx.asession() as asession:
             row = (
                 await asession.execute(
@@ -809,7 +1405,10 @@ class GamesState(rx.State):
                 )
             ).first()
         if row is None:
+            self.error = "Aucune salle ne correspond a ce code."
             return rx.toast("Aucune salle avec ce code.")
+        self.error = ""
+        self.join_code = ""
         return GamesState.join_room(int(row[0]), "")
 
     @rx.event
