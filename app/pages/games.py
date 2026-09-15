@@ -5,7 +5,6 @@ from __future__ import annotations
 import reflex as rx
 
 from app.components.bright_shell import bright_page
-from app.components.game_shell import NO_PURCHASE_COPY
 from app.states.auth_state import AuthState
 from app.states.games_state import GameCard, GamesState, RoomRow
 
@@ -244,7 +243,6 @@ def featured_lead(card: GameCard) -> rx.Component:
             rx.el.div(
                 meta_pill(card["mode"], "gamepad-2"),
                 meta_pill(card["player_range"], "users"),
-                meta_pill(f"{card['entry_coins']} pts", "coins"),
                 class_name="mt-2 flex flex-wrap gap-1.5",
             ),
             rx.el.div(
@@ -336,8 +334,7 @@ def all_games_row(card: GameCard) -> rx.Component:
                 class_name="flex flex-wrap items-center gap-2",
             ),
             rx.el.p(
-                f"{card['mode']} • {card['player_range']} • "
-                f"{card['entry_coins']} pts",
+                f"{card['mode']} • {card['player_range']}",
                 class_name="mt-0.5 text-[11px] font-medium text-slate-500",
             ),
             live_dot(card["is_live"], card["live_label"]),
@@ -552,10 +549,6 @@ def discovery_body() -> rx.Component:
             empty_search(),
         ),
         my_rooms_section(),
-        rx.el.p(
-            NO_PURCHASE_COPY,
-            class_name="text-[11px] font-medium leading-relaxed text-slate-400",
-        ),
         class_name="flex w-full flex-col gap-3",
     )
 

@@ -1,20 +1,10 @@
-"""Dark game-hall shell: header, coin chip, medallions, tags, bottom nav.
-
-Only used on game/wallet/settings routes so the light social identity of
-Home, Friends, Messages and Profile stays untouched.
-"""
+"""Dark game-hall shell: medallions, tags and compact navigation."""
 
 from __future__ import annotations
 
 import reflex as rx
 
-from app.states.auth_state import AuthState
 from app.states.games_state import GamesState
-
-NO_PURCHASE_COPY = (
-    "Les points TATA sont virtuels et internes: aucun achat, aucun depot, "
-    "aucun retrait, aucune valeur monetaire et aucune conversion possible."
-)
 
 
 def medallion(icon: str, size: str = "size-14") -> rx.Component:
@@ -54,35 +44,6 @@ def jewel_tag(label: str | rx.Var, tone: str = "cyan") -> rx.Component:
     )
 
 
-def coin_chip() -> rx.Component:
-    return rx.el.div(
-        rx.icon("coins", class_name="h-4 w-4 text-amber-300"),
-        rx.el.span(
-            f"{AuthState.coin_balance}",
-            class_name="text-sm font-bold text-amber-200 tabular-nums",
-        ),
-        rx.el.span(
-            "pts",
-            class_name="text-[10px] font-semibold uppercase text-amber-500/80",
-        ),
-        rx.el.button(
-            rx.icon("plus", class_name="h-3.5 w-3.5"),
-            on_click=rx.toast(NO_PURCHASE_COPY, duration=7000),
-            title=NO_PURCHASE_COPY,
-            aria_label="Information sur les points TATA",
-            class_name=(
-                "ml-1 flex size-6 items-center justify-center rounded-full "
-                "border border-amber-400/40 text-amber-300 "
-                "hover:bg-amber-400/10"
-            ),
-        ),
-        class_name=(
-            "flex items-center gap-1.5 rounded-full border border-amber-400/25 "
-            "bg-[#141108] px-3 py-1.5"
-        ),
-    )
-
-
 def game_header(title: str | rx.Var, back_href: str = "/games") -> rx.Component:
     return rx.el.header(
         rx.el.div(
@@ -101,13 +62,12 @@ def game_header(title: str | rx.Var, back_href: str = "/games") -> rx.Component:
                     class_name="text-base font-bold tracking-tight text-white",
                 ),
                 rx.el.p(
-                    "Points internes uniquement",
+                    "Partie en direct",
                     class_name="text-[11px] font-medium text-zinc-500",
                 ),
                 class_name="min-w-0",
             ),
             rx.el.div(
-                coin_chip(),
                 rx.el.a(
                     rx.icon("house", class_name="h-4 w-4 text-zinc-300"),
                     href="/",
@@ -162,12 +122,6 @@ def _nav_item(
 def game_bottom_nav(active: str = "jeux") -> rx.Component:
     return rx.el.nav(
         _nav_item("gamepad-2", "Jeux", "/games", active == "jeux"),
-        _nav_item(
-            "receipt-text",
-            "Transactions",
-            "/transactions",
-            active == "transactions",
-        ),
         _nav_item("message-circle", "Chat", "/messages", active == "chat"),
         rx.el.button(
             rx.icon("gift", class_name="h-5 w-5 text-zinc-500"),
@@ -209,8 +163,7 @@ def referral_panel() -> rx.Component:
                 ),
                 rx.el.div(
                     rx.el.p(
-                        "Partagez votre code d'invitation. Vos filleuls et vous "
-                        "recevez des points internes de bienvenue.",
+                        "Partagez votre code d'invitation pour inviter vos amis à jouer, sans récompense.",
                         class_name="text-sm text-zinc-400",
                     ),
                     rx.el.div(
@@ -226,22 +179,6 @@ def referral_panel() -> rx.Component:
                             "border-amber-400/40 bg-[#141108] px-4 py-3 "
                             "text-center"
                         ),
-                    ),
-                    rx.el.ul(
-                        rx.el.li(
-                            "Recompenses versees uniquement en points TATA.",
-                            class_name="text-xs text-zinc-500",
-                        ),
-                        rx.el.li(
-                            "Aucun paiement, aucun retrait, aucune valeur "
-                            "monetaire.",
-                            class_name="text-xs text-zinc-500",
-                        ),
-                        rx.el.li(
-                            "Panneau informatif: rien n'est vendu ici.",
-                            class_name="text-xs text-zinc-500",
-                        ),
-                        class_name="mt-3 flex list-disc flex-col gap-1 pl-4",
                     ),
                     class_name="p-4",
                 ),

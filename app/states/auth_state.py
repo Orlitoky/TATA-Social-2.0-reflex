@@ -9,7 +9,7 @@ import reflex as rx
 from sqlalchemy import select, text
 
 from app.media import avatar_source
-from app.models import Account, CoinLedgerEntry, Preference, Profile, Wallet
+from app.models import Account, Preference, Profile
 from app.security import (
     hash_password,
     hash_token,
@@ -22,7 +22,6 @@ from app.security import (
 from app.seed import needs_seed, seed_demo_network
 
 SESSION_DAYS = 30
-SIGNUP_BONUS_COINS = 500
 
 
 class AuthState(rx.State):
@@ -34,7 +33,6 @@ class AuthState(rx.State):
     email: str = ""
     avatar_url: str = ""
     avatar_remote: bool = True
-    coin_balance: int = 0
 
     error: str = ""
     processing: bool = False
@@ -58,7 +56,6 @@ class AuthState(rx.State):
         self.display_name = ""
         self.email = ""
         self.avatar_url = ""
-        self.coin_balance = 0
 
     async def _load_identity(self, asession, account_id: int) -> None:
         row = (
@@ -67,11 +64,9 @@ class AuthState(rx.State):
                     """
                     SELECT a.username, a.email,
                            COALESCE(p.display_name, ''),
-                           COALESCE(p.avatar_key, ''),
-                           COALESCE(w.balance_coins, 0)
+                           COALESCE(p.avatar_key, '')
                     FROM account a
                     LEFT JOIN profile p ON p.account_id = a.id
-                    LEFT JOIN wallet w ON w.account_id = a.id
                     WHERE a.id = :id
                     """
                 ),
@@ -88,7 +83,6 @@ class AuthState(rx.State):
         url, remote = avatar_source(row[3], row[0])
         self.avatar_url = url
         self.avatar_remote = remote
-        self.coin_balance = int(row[4])
 
     @rx.event
     async def check_session(self):
@@ -326,27 +320,6 @@ class AuthState(rx.State):
             asession.add(
                 Preference(
                     account_id=account.id, created_at=now, updated_at=now
-                )
-            )
-            wallet = Wallet(
-                account_id=account.id,
-                balance_coins=SIGNUP_BONUS_COINS,
-                lifetime_earned_coins=SIGNUP_BONUS_COINS,
-                created_at=now,
-                updated_at=now,
-            )
-            asession.add(wallet)
-            await asession.flush()
-            asession.add(
-                CoinLedgerEntry(
-                    wallet_id=wallet.id,
-                    account_id=account.id,
-                    amount_coins=SIGNUP_BONUS_COINS,
-                    balance_after=SIGNUP_BONUS_COINS,
-                    reason="signup_bonus",
-                    description="Welcome to TATA - signup bonus",
-                    idempotency_key=f"signup:{account.id}",
-                    created_at=now,
                 )
             )
 

@@ -208,8 +208,6 @@ def room_head() -> rx.Component:
             ),
             rx.el.div(
                 jewel_tag(RoomState.status_label, "emerald"),
-                jewel_tag(f"Pot {RoomState.pot_coins} pts", "gold"),
-                jewel_tag(f"Net {RoomState.net_prize} pts", "cyan"),
                 class_name="flex flex-wrap gap-1.5",
             ),
             class_name="flex flex-col gap-3 sm:flex-row sm:items-start",
@@ -320,8 +318,7 @@ def room_head() -> rx.Component:
                 rx.el.p(
                     rx.cond(
                         RoomState.winner_name != "",
-                        f"Vainqueur: {RoomState.winner_name} • "
-                        f"{RoomState.net_prize} points nets, frais deduits",
+                        f"Vainqueur: {RoomState.winner_name} • Partie terminee",
                         "Partie terminee.",
                     ),
                     class_name="text-sm font-bold text-amber-200",

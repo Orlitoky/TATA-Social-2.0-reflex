@@ -2,8 +2,7 @@
 
 Dark-navy table surface (#071A33 / #0B2647) nested inside the bright TATA
 journey: sky/cyan controls, emerald ready signals, red removal/disconnect,
-a touch of warm gold reserved for host and pot. Points are internal and
-virtual: no deposit, no withdrawal, no monetary value.
+a touch of warm gold reserved for host.
 """
 
 from __future__ import annotations
@@ -158,8 +157,6 @@ def lobby_header() -> rx.Component:
                 "sieges",
                 "cyan",
             ),
-            chip(f"Mise {RoomState.entry_coins} pts", "slate"),
-            chip(f"Pot {RoomState.pot_coins} pts", "gold"),
             chip(RoomState.status_label, "slate"),
             class_name="mt-3 flex flex-wrap gap-1.5",
         ),
@@ -590,7 +587,7 @@ def settings_panel() -> rx.Component:
                     rx.el.div(
                         chip(RoomState.lobby_mode_label, "sky"),
                         chip(
-                            f"Objectif {RoomState.lobby_target_score} pts",
+                            f"Score cible {RoomState.lobby_target_score}",
                             "gold",
                         ),
                         chip(
@@ -631,7 +628,7 @@ def settings_panel() -> rx.Component:
                     rx.el.div(
                         chip(RoomState.lobby_tier_label, "gold"),
                         chip(
-                            f"{RoomState.lobby_tier_price} pts / carton",
+                            "1 a 5 cartons par joueur",
                             "sky",
                         ),
                         chip(
@@ -654,11 +651,6 @@ def settings_panel() -> rx.Component:
                 rx.fragment(),
             ),
             class_name="mt-2",
-        ),
-        rx.el.p(
-            "Les points TATA sont virtuels et internes: aucun depot, aucun "
-            "retrait, aucune valeur monetaire.",
-            class_name="mt-2 text-[10px] leading-relaxed text-slate-500",
         ),
         class_name=CARD + " p-3",
     )

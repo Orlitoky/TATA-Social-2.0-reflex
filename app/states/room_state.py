@@ -21,17 +21,13 @@ from app.games_catalog import (
     GAME_REACTIONS,
     LOTO_MAX_CARDS,
     LOTO_MIN_CARDS,
-    LOTO_TIER_NOTICE,
     loto_claim_label,
     tier_by_key,
 )
 from app.media import avatar_source
 from app.states.auth_state import AuthState
-from app.wallet import balance_of, move_coins
 
 import logging
-
-FEE_PERCENT = 10
 
 
 class PlayerRow(TypedDict):
@@ -212,9 +208,6 @@ class RoomState(rx.State):
     is_private: bool = False
     is_host: bool = False
     is_member: bool = False
-    entry_coins: int = 0
-    pot_coins: int = 0
-    net_prize: int = 0
     max_players: int = 0
     player_count: int = 0
     state_version: int = 0
@@ -251,11 +244,9 @@ class RoomState(rx.State):
     rematch_busy: bool = False
 
     # LOTO
-    loto_tier_notice: str = LOTO_TIER_NOTICE
     loto_max_cards: int = LOTO_MAX_CARDS
     tier_key: str = ""
     tier_label: str = ""
-    tier_price: int = 0
     tier_max_cards: int = 0
     drawn: list[int] = []
     last_number: int = 0
@@ -321,7 +312,6 @@ class RoomState(rx.State):
     lobby_host_name: str = ""
     lobby_goal_pawns: int = 4
     lobby_tier_label: str = ""
-    lobby_tier_price: int = 0
     lobby_tier_max_cards: int = 0
     lobby_draw_seconds: int = 12
     lobby_ticket_total: int = 0
@@ -377,10 +367,6 @@ class RoomState(rx.State):
     @rx.var
     def timer_label(self) -> str:
         return f"{self.seconds_left}s" if self.seconds_left > 0 else "0s"
-
-    @rx.var
-    def buy_total_points(self) -> int:
-        return max(0, self.buy_count) * max(0, self.tier_price)
 
     @rx.var
     def drawn_count(self) -> int:
@@ -723,17 +709,7 @@ class RoomState(rx.State):
         if locked is not None and locked[0] is not None:
             return 0
         payable = winner_id if winner_id > 0 else 0
-        net = max(0, pot - (pot * FEE_PERCENT) // 100)
-        if net > 0 and payable:
-            await move_coins(
-                asession,
-                payable,
-                net,
-                "game_win",
-                f"Gain {label} (net, frais deduits)",
-                room_id,
-                f"settle:{room_id}",
-            )
+        net = 0
         await asession.execute(
             text(
                 """
@@ -759,7 +735,7 @@ class RoomState(rx.State):
             asession,
             room_id,
             "settle",
-            f"Partie reglee: {net} points nets",
+            f"Partie terminee: {label}",
             None,
         )
         return net
@@ -861,12 +837,7 @@ class RoomState(rx.State):
             self.state_version = int(room[3] or 0)
             self.turn_account_id = int(room[4] or 0)
             self.round_number = int(room[5] or 0)
-            self.pot_coins = int(room[6] or 0)
-            self.net_prize = max(
-                0, self.pot_coins - (self.pot_coins * FEE_PERCENT) // 100
-            )
             self.is_host = int(room[8]) == me
-            self.entry_coins = int(room[9] or 0)
             self.max_players = int(room[10] or 0)
             self.is_private = bool(room[14])
             self.player_count = int(room[19] or 0)
@@ -1072,8 +1043,7 @@ class RoomState(rx.State):
                     "settle": "Reglement",
                 }.get(str(kind), str(kind))
                 who = str(data.get("name", ""))
-                amount = data.get("amount")
-                extra = f" - {amount} points nets" if amount else ""
+                extra = ""
                 announcements.append(f"{label}: {who}{extra}")
             self.announcements = announcements
             await self._load_chat(asession, room_id, me)
@@ -1148,7 +1118,7 @@ class RoomState(rx.State):
             "draw": "Tirage",
             "timeout": "Temps ecoule",
             "round_end": "Fin de manche",
-            "settle": "Reglement",
+            "settle": "Partie terminee",
             "claim_quine": loto_claim_label("quine"),
             "claim_double_quine": loto_claim_label("double_quine"),
             "claim_full_house": loto_claim_label("full_house"),
@@ -1181,12 +1151,9 @@ class RoomState(rx.State):
             "claim_double_quine",
             "claim_full_house",
         ):
-            return (
-                label,
-                f"{data.get('name', '')} - {data.get('amount', 0)} points nets",
-            )
+            return (label, f"{data.get('name', '')} - achievement valide")
         if kind == "round_end":
-            return label, f"+{data.get('amount', 0)} points au gagnant"
+            return label, "Score de manche valide"
         if kind == "timeout":
             return label, "Le serveur a fait avancer le tour"
         if kind == "start":
@@ -1244,7 +1211,7 @@ class RoomState(rx.State):
             elif self.slug == "ludo":
                 detail = f"{player['home_pawns']}/4 pions a la maison"
             else:
-                detail = f"{score} points"
+                detail = f"{score} score"
             rows.append(
                 {
                     "account_id": account_id,
@@ -1268,17 +1235,15 @@ class RoomState(rx.State):
                 self.result_headline = "Partie terminee"
             if self.slug == "loto":
                 self.result_detail = (
-                    f"{loto_claim_label('full_house')} remporte - "
-                    f"pot {self.pot_coins} points internes"
+                    f"{loto_claim_label('full_house')} remporte"
                 )
             elif self.slug == "ludo":
                 self.result_detail = (
-                    f"Quatre pions a la maison - {self.net_prize} points nets"
+                    "Quatre pions a la maison - achievement valide"
                 )
             else:
                 self.result_detail = (
-                    f"Objectif Maty {self.maty_target} atteint - "
-                    f"{self.net_prize} points nets"
+                    f"Objectif Maty {self.maty_target} atteint - score valide"
                 )
         else:
             self.result_headline = ""
@@ -1300,7 +1265,6 @@ class RoomState(rx.State):
             tier = tier_by_key(str(rules.get("tier", "bronze")))
             self.tier_key = str(tier["key"])
             self.tier_label = str(tier["label"])
-            self.tier_price = int(tier["card_price"])
             self.tier_max_cards = LOTO_MAX_CARDS
             drawn = [int(n) for n in state.get("drawn", [])]
             self.drawn = list(reversed(drawn))
@@ -1754,7 +1718,6 @@ class RoomState(rx.State):
         if self.slug == "loto":
             tier = tier_by_key(str(rules.get("tier", "bronze")))
             self.lobby_tier_label = str(tier["label"])
-            self.lobby_tier_price = int(tier["card_price"])
             self.lobby_tier_max_cards = LOTO_MAX_CARDS
 
         # True persistent seat ordering: self.players already comes back
@@ -1853,8 +1816,7 @@ class RoomState(rx.State):
             f'  const code = "{code}";'
             f'  const game = "{game}";'
             '  const text = "Rejoins ma partie " + game + " TATA (code "'
-            '    + code + ") - points internes uniquement, aucune valeur '
-            'monetaire.";'
+            '    + code + ").";'
             "  try {"
             "    if (navigator.share) {"
             '      await navigator.share({title: game + " TATA", '
@@ -2293,13 +2255,13 @@ class RoomState(rx.State):
 
     # ------------------------------------------------------------------ LOTO
     @rx.event
-    def set_buy_count(self, value: str):
+    def set_buy_count(self, value: float | int):
         """Server-side clamp: every tier allows exactly 1 to 5 tickets."""
         try:
             self.buy_count = max(
                 LOTO_MIN_CARDS, min(LOTO_MAX_CARDS, int(value))
             )
-        except ValueError:
+        except (TypeError, ValueError):
             self.buy_count = LOTO_MIN_CARDS
 
     @rx.event
@@ -2315,7 +2277,7 @@ class RoomState(rx.State):
                 return rx.toast("Les cartons se prennent avant le tirage.")
             rules = json.loads(str(room[1]) or "{}")
             tier = tier_by_key(str(rules.get("tier", "bronze")))
-            price = int(tier["card_price"])
+            price = 0
             allowance = LOTO_MAX_CARDS
             existing = (
                 await asession.execute(
@@ -2333,18 +2295,7 @@ class RoomState(rx.State):
                     f"Maximum {allowance} carton(s) par joueur "
                     f"({tier['label']})."
                 )
-            total = price * count
-            ok, message, balance = await move_coins(
-                asession,
-                me,
-                -total,
-                "game_entry",
-                f"{count} carton(s) LOTO {tier['label']}",
-                self.active_id,
-                f"cards:{self.active_id}:{me}:{owned + count}",
-            )
-            if not ok:
-                return rx.toast(message or "Achat impossible.")
+            total = 0
             rng = random.Random()
             next_index = int(existing[0] or 0)
             for offset in range(count):
@@ -2373,13 +2324,6 @@ class RoomState(rx.State):
                         "tier": str(tier["key"]),
                     },
                 )
-            await asession.execute(
-                text(
-                    "UPDATE game_room SET pot_coins = pot_coins + :t, "
-                    "updated_at = NOW() WHERE id = :r"
-                ),
-                {"t": total, "r": self.active_id},
-            )
             await self._event(
                 asession,
                 self.active_id,
@@ -2388,7 +2332,6 @@ class RoomState(rx.State):
                 me,
             )
             await asession.commit()
-            auth.coin_balance = balance
         await self._refresh()
         return rx.toast(f"{count} carton(s) ajoute(s).")
 
@@ -2454,7 +2397,7 @@ class RoomState(rx.State):
                     {"r": self.active_id},
                 )
             ).all()
-            net_pot = max(0, pot - (pot * FEE_PERCENT) // 100)
+            net_pot = 0
             winner_id = 0
             announcements: list[str] = []
             for card in cards:
@@ -2498,16 +2441,7 @@ class RoomState(rx.State):
                         ("full_house", "claimed_full_house", 50, card_id)
                     )
                 for key, column, share, cid in tiers_hit:
-                    amount = net_pot * share // 100
-                    paid, _, _ = await move_coins(
-                        asession,
-                        account_id,
-                        max(1, amount),
-                        "game_win",
-                        f"LOTO {loto_claim_label(key)} (net, frais deduits)",
-                        self.active_id,
-                        f"payout:{self.active_id}:{key}:{cid}",
-                    )
+                    amount = 0
                     await asession.execute(
                         text(
                             f"UPDATE bingo_card SET {column} = true, "
@@ -2520,7 +2454,7 @@ class RoomState(rx.State):
                         {
                             "kind": key,
                             "name": str(card[6]),
-                            "amount": max(1, amount) if paid else 0,
+                            "amount": 0,
                         }
                     )
                     announcements.append(f"{label}: {card[6]}")
@@ -2530,7 +2464,7 @@ class RoomState(rx.State):
                         f"claim_{key}",
                         {
                             "name": str(card[6]),
-                            "amount": max(1, amount),
+                            "amount": 0,
                             "card": cid,
                         },
                         version + 1,
@@ -2541,7 +2475,7 @@ class RoomState(rx.State):
                         asession,
                         self.active_id,
                         "claim",
-                        f"{label} pour {card[6]} - {max(1, amount)} points nets",
+                        f"{label} pour {card[6]}",
                         account_id,
                     )
                     if key == "full_house":
@@ -2605,7 +2539,6 @@ class RoomState(rx.State):
                     None,
                 )
             await asession.commit()
-            auth.coin_balance = await balance_of(asession, me)
         return True, announcements, number, ""
 
     @rx.event
@@ -2686,7 +2619,7 @@ class RoomState(rx.State):
             state = dict(state)
             state["scores"] = scores
             state["extra_turn"] = False
-            note = f"Manche gagnee: +{points} points (objectif {target})"
+            note = f"Manche gagnee: +{points} score (objectif {target})"
             await self._log(
                 asession,
                 room_id,
@@ -2838,7 +2771,6 @@ class RoomState(rx.State):
             if not ok:
                 return rx.toast("Plateau modifie entre-temps, reessayez.")
             await asession.commit()
-            auth.coin_balance = await balance_of(asession, me)
         await self._run_bots()
         await self._refresh()
         if note:
@@ -3083,8 +3015,7 @@ class RoomState(rx.State):
                     "LUDO",
                 )
             await asession.commit()
-            auth.coin_balance = await balance_of(asession, me)
-        await self._refresh()
+            await self._refresh()
         return None
 
     # -------------------------------------------------------------- FARITANY
@@ -3146,7 +3077,6 @@ class RoomState(rx.State):
                     "FARITANY",
                 )
             await asession.commit()
-            auth.coin_balance = await balance_of(asession, me)
         await self._refresh()
         return None
 
@@ -3196,7 +3126,6 @@ class RoomState(rx.State):
                     "JEUX DE POINT",
                 )
             await asession.commit()
-            auth.coin_balance = await balance_of(asession, me)
         await self._refresh()
         return None
 
@@ -3295,8 +3224,7 @@ class RoomState(rx.State):
                     self.game_name,
                 )
             await asession.commit()
-            auth.coin_balance = await balance_of(asession, me)
-        self.selected_cards = []
+            self.selected_cards = []
         await self._refresh()
         return None
 
@@ -3341,7 +3269,6 @@ class RoomState(rx.State):
                     "RAMI",
                 )
             await asession.commit()
-            auth.coin_balance = await balance_of(asession, me)
         self.selected_cards = []
         await self._refresh()
         return rx.toast("Combinaison validee.")
@@ -3386,7 +3313,6 @@ class RoomState(rx.State):
                     "TRI",
                 )
             await asession.commit()
-            auth.coin_balance = await balance_of(asession, me)
         self.selected_cards = []
         await self._refresh()
         return None
@@ -3518,7 +3444,6 @@ class RoomState(rx.State):
                     "BILLARD",
                 )
             await asession.commit()
-            auth.coin_balance = await balance_of(asession, me)
         await self._refresh()
         return None
 

@@ -26,7 +26,6 @@ from app.models import (
     Profile,
     Story,
     StoryMedia,
-    Wallet,
 )
 from app.security import hash_password
 
@@ -114,14 +113,6 @@ async def seed_demo_network(asession: AsyncSession, me_id: int) -> None:
         asession.add(
             Preference(account_id=account.id, created_at=now, updated_at=now)
         )
-        wallet = Wallet(
-            account_id=account.id,
-            balance_coins=random.randint(120, 4200),
-            lifetime_earned_coins=random.randint(500, 8000),
-            created_at=now,
-            updated_at=now,
-        )
-        asession.add(wallet)
 
     await asession.flush()
 

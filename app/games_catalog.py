@@ -1,8 +1,4 @@
-"""Static games catalog, LOTO tiers and shared dark-hall vocabularies.
-
-Coins referenced here are TATA Coins: internal virtual points only. They can
-never be purchased, deposited, withdrawn or converted to money.
-"""
+"""Static games catalog, LOTO tiers and shared dark-hall vocabularies."""
 
 from __future__ import annotations
 
@@ -17,7 +13,6 @@ CATALOG: list[dict[str, str | int]] = [
         "category": "tirage",
         "min_players": 1,
         "max_players": 30,
-        "default_entry_coins": 200,
         "tag": "4 paliers",
         "medallion": "dices",
     },
@@ -31,7 +26,6 @@ CATALOG: list[dict[str, str | int]] = [
         "category": "tuiles",
         "min_players": 2,
         "max_players": 3,
-        "default_entry_coins": 100,
         "tag": "Maty",
         "medallion": "grip",
     },
@@ -44,7 +38,6 @@ CATALOG: list[dict[str, str | int]] = [
         "category": "plateau",
         "min_players": 2,
         "max_players": 4,
-        "default_entry_coins": 100,
         "tag": "4 couleurs",
         "medallion": "dice-5",
     },
@@ -58,7 +51,6 @@ CATALOG: list[dict[str, str | int]] = [
         "category": "strategie",
         "min_players": 2,
         "max_players": 2,
-        "default_entry_coins": 150,
         "tag": "15s / tour",
         "medallion": "gem",
     },
@@ -71,7 +63,6 @@ CATALOG: list[dict[str, str | int]] = [
         "category": "papier",
         "min_players": 2,
         "max_players": 2,
-        "default_entry_coins": 50,
         "tag": "Boites",
         "medallion": "grid-3x3",
     },
@@ -85,7 +76,6 @@ CATALOG: list[dict[str, str | int]] = [
         "category": "cartes",
         "min_players": 2,
         "max_players": 4,
-        "default_entry_coins": 150,
         "tag": "52 cartes",
         "medallion": "spade",
     },
@@ -99,7 +89,6 @@ CATALOG: list[dict[str, str | int]] = [
         "category": "cartes",
         "min_players": 2,
         "max_players": 4,
-        "default_entry_coins": 100,
         "tag": "32 cartes",
         "medallion": "club",
     },
@@ -113,7 +102,6 @@ CATALOG: list[dict[str, str | int]] = [
         "category": "adresse",
         "min_players": 2,
         "max_players": 2,
-        "default_entry_coins": 200,
         "tag": "1v1",
         "medallion": "circle-dot",
     },
@@ -178,43 +166,32 @@ def discovery_meta(slug: str) -> dict[str, str | int | bool]:
     )
 
 
-# Exactly four canonical LOTO tiers. The "Ar" suffix is an in-game tier
-# denomination only: the debited value is an internal TATA point amount.
+# Exactly four canonical LOTO gameplay variants.
 LOTO_MAX_CARDS: int = 5
 LOTO_MIN_CARDS: int = 1
-
-LOTO_TIER_NOTICE: str = (
-    "Denomination de palier en jeu uniquement: les libelles en Ar nomment "
-    "les paliers TATA et sont debites en points internes. Aucun depot, "
-    "aucun retrait, aucune valeur monetaire, aucune conversion."
-)
 
 LOTO_TIERS: list[dict[str, str | int]] = [
     {
         "key": "bronze",
-        "label": "Bronze 200 Ar",
-        "card_price": 200,
+        "label": "Bronze",
         "max_cards": LOTO_MAX_CARDS,
         "accent": "amber",
     },
     {
         "key": "standard",
-        "label": "Standard 500 Ar",
-        "card_price": 500,
+        "label": "Standard",
         "max_cards": LOTO_MAX_CARDS,
         "accent": "sky",
     },
     {
         "key": "premium",
-        "label": "Premium 1000 Ar",
-        "card_price": 1000,
+        "label": "Premium",
         "max_cards": LOTO_MAX_CARDS,
         "accent": "cyan",
     },
     {
         "key": "vip",
-        "label": "VIP 1500 Ar",
-        "card_price": 1500,
+        "label": "VIP",
         "max_cards": LOTO_MAX_CARDS,
         "accent": "gold",
     },
@@ -258,11 +235,6 @@ GAME_DETAILS: dict[str, dict[str, str]] = {
             "les passes sont gardees, et la manche se termine sur une main "
             "vide ou un blocage."
         ),
-        "stake": (
-            "Mise par defaut 100 points internes TATA, ajoutee au pot de la "
-            "salle. Aucun achat, aucun depot, aucun retrait, aucune valeur "
-            "monetaire."
-        ),
     },
     "ludo": {
         "cover": "/ludo_game_board.png",
@@ -274,10 +246,6 @@ GAME_DETAILS: dict[str, dict[str, str]] = {
             "protegees, captures et arrivee exacte calculees par le "
             "serveur. La victoire demande les quatre pions a la maison."
         ),
-        "stake": (
-            "Mise par defaut 100 points internes TATA. Les points sont "
-            "virtuels: aucun achat, aucun depot, aucun retrait."
-        ),
     },
     "loto": {
         "cover": "/loto_game_original.png",
@@ -288,11 +256,6 @@ GAME_DETAILS: dict[str, dict[str, str]] = {
             "5 cartons par joueur, tirages uniques automatiques, marquage "
             "et validation des annonces Mandry 1, Mandry 2 et Aoka "
             "calcules par le serveur."
-        ),
-        "stake": (
-            "Palier du carton: Bronze 200 Ar, Standard 500 Ar, Premium "
-            "1000 Ar ou VIP 1500 Ar, debite en points internes TATA. "
-            "Aucun achat, aucun depot, aucun retrait, aucune conversion."
         ),
     },
 }
@@ -341,18 +304,13 @@ GAME_RULES: dict[str, list[str]] = {
         "numeros, 5 par ligne, chaque colonne couvrant une dizaine.",
         "Chaque joueur peut detenir de 1 a 5 cartons valides, quel que "
         "soit le palier de la salle.",
-        "Quatre paliers uniquement: Bronze 200 Ar, Standard 500 Ar, "
-        "Premium 1000 Ar et VIP 1500 Ar. Ces libelles sont des "
-        "denominations de palier en jeu, debitees en points internes: "
-        "aucun depot, aucun retrait, aucune valeur monetaire, aucune "
-        "conversion.",
+        "Quatre paliers uniquement: Bronze, Standard, Premium et VIP.",
         "Tirages automatiques: chaque boule tiree est unique, sans doublon, "
         "jusqu'a epuisement des 90 boules.",
         "Le marquage des numeros et la progression par ligne sont calcules "
         "automatiquement par le serveur.",
         "Annonces: Mandry 1 (une ligne complete), Mandry 2 (deux lignes "
         "completes) et Aoka (les 15 numeros du carton).",
-        "Repartition du pot net: 20% Mandry 1, 30% Mandry 2, 50% Aoka.",
         "Le tirage s'arrete des que Aoka est remporte ou que les 90 "
         "boules sont epuisees.",
     ],
@@ -389,16 +347,12 @@ GAME_HOWTO: dict[str, list[str]] = {
         "exactement la maison.",
     ],
     "loto": [
-        "Choisissez une salle selon son palier (Bronze 200 Ar, Standard "
-        "500 Ar, Premium 1000 Ar, VIP 1500 Ar) puis rejoignez-la avec vos "
-        "points internes.",
+        "Choisissez une salle selon son palier puis rejoignez-la.",
         "Prenez de 1 a 5 cartons: ils sont generes et valides par le serveur.",
         "Suivez les tirages: chaque boule sortie est marquee "
         "automatiquement sur vos cartons.",
         "Surveillez la progression par ligne affichee pour chaque carton.",
-        "Mandry 1, Mandry 2 et Aoka sont detectes et payes "
-        "automatiquement par le serveur: aucun bouton d'annonce n'est "
-        "necessaire.",
+        "Mandry 1, Mandry 2 et Aoka sont detectes automatiquement par le serveur.",
         "Le tirage avance seul a l'expiration du minuteur et s'arrete sur "
         "Aoka ou apres la 90e boule.",
     ],
@@ -416,7 +370,6 @@ def detail_meta(slug: str) -> dict[str, str]:
             "mode": "Multijoueur",
             "player_range": "",
             "overview": "",
-            "stake": "",
         },
     )
 

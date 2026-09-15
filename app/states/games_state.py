@@ -25,7 +25,6 @@ from app.games_catalog import (
 )
 from app.security import hash_password
 from app.states.auth_state import AuthState
-from app.wallet import balance_of, move_coins
 
 
 class GameCard(TypedDict):
@@ -37,7 +36,6 @@ class GameCard(TypedDict):
     medallion: str
     min_players: int
     max_players: int
-    entry_coins: int
     open_rooms: int
     live_players: int
     cover: str
@@ -63,8 +61,6 @@ class RoomRow(TypedDict):
     is_private: bool
     player_count: int
     max_players: int
-    entry_coins: int
-    pot_coins: int
     host_name: str
     host_online: bool
     tier_label: str
@@ -109,8 +105,8 @@ class GamesState(rx.State):
     gen_private: bool = False
     gen_secret: str = ""
     gen_players: int = 4
-    gen_entry: str = "100"
     gen_tier: str = "bronze"
+    gen_entry: str = "100"
 
     # ---- Domino "Creer une partie" bottom sheet draft -------------------
     domino_sheet_open: bool = False
@@ -196,7 +192,6 @@ class GamesState(rx.State):
         {
             "key": str(tier["key"]),
             "label": str(tier["label"]),
-            "price": str(tier["card_price"]),
             "max": str(tier["max_cards"]),
         }
         for tier in LOTO_TIERS
@@ -232,10 +227,6 @@ class GamesState(rx.State):
         return str(detail_meta(self.active_slug)["overview"])
 
     @rx.var
-    def detail_stake(self) -> str:
-        return str(detail_meta(self.active_slug)["stake"])
-
-    @rx.var
     def detail_rules_list(self) -> list[str]:
         return detail_rules(self.active_slug)
 
@@ -246,12 +237,6 @@ class GamesState(rx.State):
     @rx.var
     def showing_rules(self) -> bool:
         return self.panel_tab == "rules"
-
-    @rx.var
-    def default_entry_label(self) -> str:
-        if self.active_slug not in VISIBLE_SLUGS:
-            return "0"
-        return f"{int(game_by_slug(self.active_slug)['default_entry_coins'])}"
 
     @rx.var
     def visible_rooms(self) -> list[RoomRow]:
@@ -396,7 +381,7 @@ class GamesState(rx.State):
                     "category": entry["category"],
                     "min_players": entry["min_players"],
                     "max_players": entry["max_players"],
-                    "entry": entry["default_entry_coins"],
+                    "entry": 0,
                 },
             )
         rows = (
@@ -431,11 +416,11 @@ class GamesState(rx.State):
             catalog = game_by_slug(str(slug))
             for index in range(2):
                 rules: dict[str, Any] = {}
-                entry = int(catalog["default_entry_coins"])
+                entry = 0
                 if slug == "loto":
                     tier = LOTO_TIERS[index]
                     rules = {"tier": tier["key"], "draw_seconds": 12}
-                    entry = int(tier["card_price"])
+                    entry = 0
                 elif slug == "domino":
                     rules = {
                         "maty": MATY_TARGETS[index],
@@ -529,7 +514,6 @@ class GamesState(rx.State):
                     ),
                     "min_players": int(r[4]),
                     "max_players": int(r[5]),
-                    "entry_coins": int(r[6]),
                     "open_rooms": open_rooms,
                     "live_players": live_players,
                     "cover": str(meta["cover"]),
@@ -627,8 +611,6 @@ class GamesState(rx.State):
             "is_private": bool(r[6]),
             "player_count": int(r[7] or 0),
             "max_players": int(r[8] or 0),
-            "entry_coins": int(r[9] or 0),
-            "pot_coins": int(r[10] or 0),
             "host_name": str(r[11]),
             "host_online": bool(r[12]),
             "tier_label": tier_label,
@@ -814,7 +796,7 @@ class GamesState(rx.State):
             "game_state": "waiting",
             "maty": target_score,
         }
-        entry = int(catalog["default_entry_coins"])
+        entry = 0
         room_id = 0
         try:
             async with rx.asession() as asession:
@@ -887,29 +869,6 @@ class GamesState(rx.State):
                     ),
                     {"r": room_id, "a": auth.account_id},
                 )
-                if entry > 0:
-                    ok, pay_message, _ = await move_coins(
-                        asession,
-                        auth.account_id,
-                        -entry,
-                        "game_entry",
-                        f"Entree salle #{room_id}",
-                        room_id,
-                        f"entry:{room_id}:{auth.account_id}",
-                    )
-                    if not ok:
-                        await asession.rollback()
-                        self.domino_creating = False
-                        self.draft_error = (
-                            pay_message or "Points internes insuffisants."
-                        )
-                        return
-                    await asession.execute(
-                        text(
-                            "UPDATE game_room SET pot_coins = :e WHERE id = :r"
-                        ),
-                        {"e": entry, "r": room_id},
-                    )
                 await asession.execute(
                     text(
                         """
@@ -925,8 +884,6 @@ class GamesState(rx.State):
                     },
                 )
                 await asession.commit()
-                balance = await balance_of(asession, auth.account_id)
-            auth.coin_balance = balance
         except SQLAlchemyError as exc:
             logging.exception(f"Error: {exc}")
             self.domino_creating = False
@@ -998,12 +955,12 @@ class GamesState(rx.State):
         if game_row is None:
             return 0
         rules: dict[str, Any] = {}
-        entry = int(catalog["default_entry_coins"])
+        entry = 0
         max_players = int(catalog["max_players"])
         if slug == "loto":
             tier = LOTO_TIERS[0]
             rules = {"tier": tier["key"], "draw_seconds": 12}
-            entry = int(tier["card_price"])
+            entry = 0
             max_players = 8
         elif slug == "ludo":
             rules = {"goal_pawns": 4}
@@ -1167,7 +1124,7 @@ class GamesState(rx.State):
         for tier in LOTO_TIERS:
             if tier["key"] == value:
                 self.gen_tier = value
-                self.gen_entry = str(tier["card_price"])
+                self.gen_entry = "0"
         self.create_error = ""
 
     @rx.event
@@ -1190,12 +1147,12 @@ class GamesState(rx.State):
             return
         catalog = game_by_slug(slug)
         rules: dict[str, Any] = {}
-        entry = int(self.gen_entry or catalog["default_entry_coins"])
+        entry = int(self.gen_entry or 0)
         if slug == "loto":
             rules = {"tier": self.gen_tier, "draw_seconds": 12}
             for tier in LOTO_TIERS:
                 if tier["key"] == self.gen_tier:
-                    entry = int(tier["card_price"])
+                    entry = 0
         else:
             # Standard Ludo: always four pawns, never configurable.
             rules = {"goal_pawns": 4}
@@ -1308,12 +1265,10 @@ class GamesState(rx.State):
             max_players = int(catalog["max_players"])
         max_players = max(2, min(int(catalog["max_players"]), max_players))
         try:
-            entry = int(
-                form_data.get("entry_coins") or catalog["default_entry_coins"]
-            )
+            entry = 0
         except ValueError:
-            entry = int(catalog["default_entry_coins"])
-        entry = max(0, min(5000, entry))
+            entry = 0
+        entry = 0
 
         rules: dict[str, Any] = {}
         if slug == "loto":
@@ -1321,7 +1276,7 @@ class GamesState(rx.State):
             rules = {"tier": tier_key, "draw_seconds": 12}
             for tier in LOTO_TIERS:
                 if tier["key"] == tier_key:
-                    entry = int(tier["card_price"])
+                    entry = 0
         elif slug == "domino":
             rules = {
                 "maty": int(form_data.get("maty") or 50),
@@ -1491,38 +1446,6 @@ class GamesState(rx.State):
                 free_seat += 1
 
             entry = int(room[5] or 0)
-            if entry > 0 and str(room[6]) != "loto":
-                paid = (
-                    await asession.execute(
-                        text(
-                            "SELECT 1 FROM coin_ledger_entry "
-                            "WHERE idempotency_key = :k LIMIT 1"
-                        ),
-                        {"k": f"entry:{room_id}:{me}"},
-                    )
-                ).first()
-                if paid is None:
-                    ok, message, _ = await move_coins(
-                        asession,
-                        me,
-                        -entry,
-                        "game_entry",
-                        f"Entree salle #{room_id}",
-                        room_id,
-                        f"entry:{room_id}:{me}",
-                    )
-                    if not ok:
-                        await asession.rollback()
-                        return rx.toast(
-                            message or "Points internes insuffisants."
-                        )
-                    await asession.execute(
-                        text(
-                            "UPDATE game_room SET pot_coins = "
-                            "pot_coins + :e WHERE id = :r"
-                        ),
-                        {"e": entry, "r": room_id},
-                    )
             if member is None:
                 await asession.execute(
                     text(
@@ -1578,6 +1501,4 @@ class GamesState(rx.State):
                 },
             )
             await asession.commit()
-            balance = await balance_of(asession, me)
-        auth.coin_balance = balance
         return rx.redirect(f"/game/room/{room_id}")

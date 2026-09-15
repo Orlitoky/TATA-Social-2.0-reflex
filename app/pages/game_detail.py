@@ -243,13 +243,6 @@ def rules_panel() -> rx.Component:
                 class_name="flex flex-col gap-2",
             ),
         ),
-        rx.el.p(
-            GamesState.detail_stake,
-            class_name=(
-                "mt-3 border-t border-slate-200 pt-3 text-[11px] "
-                "leading-relaxed text-slate-500"
-            ),
-        ),
         class_name="rounded-2xl border border-slate-200 bg-white p-4",
     )
 
@@ -319,7 +312,6 @@ def room_card(room: RoomRow) -> rx.Component:
                 pill(room["tier_label"], "gold"),
                 rx.fragment(),
             ),
-            pill(f"{room['entry_coins']} pts", "slate"),
             class_name="mt-3 flex flex-wrap gap-1.5",
         ),
         rx.el.div(class_name="my-3 h-px w-full bg-slate-100"),
@@ -330,7 +322,7 @@ def room_card(room: RoomRow) -> rx.Component:
                     class_name="text-[11px] font-bold text-[#071A33]",
                 ),
                 rx.el.p(
-                    f"Pot {room['pot_coins']} pts • salle #{room['id']}",
+                    f"Salle #{room['id']}",
                     class_name="text-[10px] font-medium text-slate-500",
                 ),
                 class_name="min-w-0",
@@ -490,11 +482,6 @@ def detail_body() -> rx.Component:
                     metric("users", GamesState.detail_player_range, "Joueurs"),
                     metric("gamepad-2", GamesState.detail_mode, "Mode"),
                     metric(
-                        "coins",
-                        f"{GamesState.default_entry_label} pts",
-                        "Mise interne",
-                    ),
-                    metric(
                         "door-open",
                         GamesState.open_room_count.to_string(),
                         "Salles ouvertes",
@@ -509,14 +496,6 @@ def detail_body() -> rx.Component:
         ),
         rules_panel(),
         rooms_section(),
-        rx.el.p(
-            "TATA est un reseau social de jeux: les points sont internes et "
-            "virtuels. Aucun achat, aucun depot, aucun retrait, aucun gain "
-            "en argent reel.",
-            class_name=(
-                "border-t border-slate-200 pt-3 text-[11px] text-slate-500"
-            ),
-        ),
         create_room_sheet(),
         private_join_dialog(),
         rx.cond(GamesState.is_domino, create_game_modal(), rx.fragment()),

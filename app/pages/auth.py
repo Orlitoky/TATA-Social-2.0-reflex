@@ -46,14 +46,6 @@ def brand_panel() -> rx.Component:
                 ),
                 class_name="flex items-center gap-2",
             ),
-            rx.el.div(
-                rx.icon("coins", class_name="h-4 w-4 text-[#22D3EE]"),
-                rx.el.span(
-                    "500 virtual TATA Coins on signup",
-                    class_name="text-sm font-semibold text-white",
-                ),
-                class_name="flex items-center gap-2",
-            ),
             class_name="mt-8 flex flex-col gap-3",
         ),
         class_name="hidden md:flex md:w-1/2 md:flex-col md:justify-center bg-[#1E9EF5] p-10",

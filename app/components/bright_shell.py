@@ -1,16 +1,14 @@
 """Bright sky/navy discovery shell used only by the /games home page.
 
 Gameplay routes keep the dark hall shell in app/components/game_shell.py.
-All coin values shown here are internal TATA points: no purchase, no deposit,
-no withdrawal and no monetary value.
+The discovery shell keeps play status and room access clear.
 """
 
 from __future__ import annotations
 
 import reflex as rx
 
-from app.components.game_shell import NO_PURCHASE_COPY, referral_panel
-from app.states.auth_state import AuthState
+from app.components.game_shell import referral_panel
 from app.states.games_state import GamesState
 
 
@@ -46,28 +44,6 @@ def brand_mark() -> rx.Component:
     )
 
 
-def bright_coin_chip() -> rx.Component:
-    return rx.el.button(
-        rx.icon("coins", class_name="h-4 w-4 text-[#1E9EF5]"),
-        rx.el.span(
-            f"{AuthState.coin_balance}",
-            class_name="text-sm font-bold tabular-nums text-[#071A33]",
-        ),
-        rx.el.span(
-            "pts",
-            class_name="text-[10px] font-semibold uppercase text-slate-500",
-        ),
-        on_click=rx.toast(NO_PURCHASE_COPY, duration=7000),
-        title=NO_PURCHASE_COPY,
-        aria_label="Points internes TATA",
-        class_name=(
-            "flex items-center gap-1.5 rounded-lg border border-slate-200 "
-            "bg-[#F5FAFF] px-2.5 py-1.5 active:bg-[#E4F2FE] "
-            "hover:border-[#1E9EF5]/50"
-        ),
-    )
-
-
 def _icon_link(icon: str, href: str, label: str) -> rx.Component:
     return rx.el.a(
         rx.icon(icon, class_name="h-4 w-4 text-[#071A33]"),
@@ -98,7 +74,6 @@ def bright_header() -> rx.Component:
             ),
             brand_mark(),
             rx.el.div(
-                bright_coin_chip(),
                 _icon_link("bell", "/messages", "Notifications"),
                 _icon_link("user", "/profile", "Profil"),
                 class_name="ml-auto flex items-center gap-2",
@@ -147,12 +122,6 @@ def bright_bottom_nav(active: str = "jeux") -> rx.Component:
         _bright_nav_link("gamepad-2", "Jeux", "/games", active == "jeux"),
         _bright_nav_link(
             "trophy", "Classement", "/leaderboard", active == "classement"
-        ),
-        _bright_nav_link(
-            "receipt-text",
-            "Points",
-            "/transactions",
-            active == "transactions",
         ),
         _bright_nav_link(
             "message-circle", "Chat", "/messages", active == "chat"

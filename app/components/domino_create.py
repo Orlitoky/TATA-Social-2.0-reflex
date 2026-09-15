@@ -151,7 +151,7 @@ def score_selector() -> rx.Component:
                     ),
                 ),
                 rx.el.p(
-                    "Chiffres uniquement, entre 20 et 500 points.",
+                    "Chiffres uniquement, entre 20 et 500.",
                     class_name="mt-1 text-[11px] text-slate-500",
                 ),
                 class_name="mt-2",
@@ -284,11 +284,6 @@ def game_settings() -> rx.Component:
                     "border-rose-500/30 bg-rose-500/10 px-3 py-2"
                 ),
             ),
-        ),
-        rx.el.p(
-            "Les points TATA sont virtuels et internes: aucun achat, aucun "
-            "depot, aucun retrait, aucune valeur monetaire.",
-            class_name="text-[11px] leading-relaxed text-slate-500",
         ),
         class_name=(
             "flex w-full flex-col gap-4 overflow-y-auto px-4 pb-4 pt-3 "

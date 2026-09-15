@@ -27,7 +27,7 @@ def delete_account_dialog() -> rx.Component:
                 rx.el.form(
                     rx.el.p(
                         "This permanently removes your profile, posts, stories, "
-                        "messages and wallet history. This cannot be undone.",
+                        "messages and shared content. This cannot be undone.",
                         class_name="text-sm text-slate-600",
                     ),
                     rx.el.label(

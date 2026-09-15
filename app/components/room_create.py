@@ -47,7 +47,7 @@ def tier_row(tier: dict[str, str]) -> rx.Component:
                 class_name="text-[13px] font-bold text-[#071A33]",
             ),
             rx.el.p(
-                f"{tier['price']} pts / carton • max {tier['max']}",
+                f"1 a {tier['max']} cartons par joueur",
                 class_name="text-[11px] font-medium text-slate-500",
             ),
             class_name="min-w-0 text-left",
@@ -199,10 +199,7 @@ def create_room_sheet() -> rx.Component:
                                 class_name="mt-1 flex flex-col gap-2",
                             ),
                             rx.el.p(
-                                "1 a 5 cartons par joueur. Denomination de "
-                                "palier en jeu: debit en points internes, "
-                                "aucun depot, aucun retrait, aucune valeur "
-                                "monetaire, aucune conversion.",
+                                "Chaque variante autorise 1 a 5 cartons par joueur.",
                                 class_name=(
                                     "mt-2 text-[10px] leading-relaxed "
                                     "text-slate-500"
@@ -219,20 +216,6 @@ def create_room_sheet() -> rx.Component:
                                     "bg-slate-50 px-3 py-2 text-[11px] "
                                     "font-semibold text-slate-600"
                                 ),
-                            ),
-                            rx.el.div(
-                                label("Mise (points internes)"),
-                                rx.el.input(
-                                    type="text",
-                                    input_mode="numeric",
-                                    default_value=GamesState.gen_entry,
-                                    on_change=GamesState.set_gen_entry.debounce(
-                                        300
-                                    ),
-                                    aria_label="Mise en points internes",
-                                    class_name=INPUT,
-                                ),
-                                class_name="mt-3",
                             ),
                         ),
                     ),
@@ -254,12 +237,6 @@ def create_room_sheet() -> rx.Component:
                                 "border-red-200 bg-red-50 px-3 py-2"
                             ),
                         ),
-                    ),
-                    rx.el.p(
-                        "Les points TATA sont internes et virtuels: aucun "
-                        "achat, aucun depot, aucun retrait, aucune valeur "
-                        "monetaire.",
-                        class_name="text-[11px] leading-relaxed text-slate-500",
                     ),
                     class_name=(
                         "flex max-h-[62dvh] flex-col gap-4 overflow-y-auto "

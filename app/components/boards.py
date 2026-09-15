@@ -182,12 +182,6 @@ def loto_board() -> rx.Component:
             ),
             rx.el.div(
                 jewel_tag(RoomState.tier_label, "gold"),
-                jewel_tag(f"Pot {RoomState.pot_coins} pts", "cyan"),
-                jewel_tag(f"Net {RoomState.net_prize} pts", "emerald"),
-                rx.el.span(
-                    "Gains nets, frais deduits.",
-                    class_name="text-[11px] font-medium text-zinc-500",
-                ),
                 class_name="mt-3 flex flex-wrap items-center gap-2",
             ),
         ),
@@ -202,8 +196,7 @@ def loto_board() -> rx.Component:
                             class_name="grid gap-3 sm:grid-cols-2",
                         ),
                         rx.el.p(
-                            "Aucun carton pour l'instant. Achetez de 1 a "
-                            "5 cartons.",
+                            "Aucun carton pour l'instant. Ajoutez de 1 a 5 cartons.",
                             class_name="text-sm text-zinc-500",
                         ),
                     ),
@@ -256,13 +249,12 @@ def loto_controls() -> rx.Component:
                 ),
             ),
             rx.el.p(
-                f"{RoomState.tier_label}: {RoomState.tier_price} pts / carton, "
-                f"max {RoomState.tier_max_cards}",
+                f"{RoomState.tier_label}: 1 a 5 cartons",
                 class_name="mt-1 text-[11px] text-zinc-500",
             ),
             rx.el.button(
                 rx.icon("plus", class_name="h-4 w-4"),
-                "Acheter",
+                "Ajouter",
                 on_click=RoomState.buy_cards,
                 disabled=~RoomState.is_waiting,
                 class_name=(

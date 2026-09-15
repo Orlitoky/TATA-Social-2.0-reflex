@@ -12,7 +12,6 @@ import reflex as rx
 
 from app.components.boards import domino_tile
 from app.components.ui import avatar
-from app.states.auth_state import AuthState
 from app.states.room_state import (
     ChatRow,
     HistoryRow,
@@ -110,33 +109,10 @@ def top_bar() -> rx.Component:
                     "border-white/10 bg-white/5 px-2.5 py-1"
                 ),
             ),
-            rx.el.div(
-                rx.icon("coins", class_name="h-3.5 w-3.5 text-amber-300"),
-                rx.el.span(
-                    AuthState.coin_balance,
-                    class_name=(
-                        "text-xs font-bold text-amber-200 tabular-nums"
-                    ),
-                ),
-                rx.el.span(
-                    "pts",
-                    class_name="text-[10px] font-bold text-amber-500/80",
-                ),
-                title=(
-                    "Points internes TATA: aucun depot, aucun retrait, "
-                    "aucune valeur monetaire."
-                ),
-                class_name=(
-                    "flex items-center gap-1 rounded-full border "
-                    "border-amber-400/25 bg-amber-400/5 px-2.5 py-1"
-                ),
-            ),
             class_name="flex items-center gap-2",
         ),
         rx.el.div(
             tone_pill(RoomState.status_label, "emerald"),
-            tone_pill(f"Pot {RoomState.pot_coins} pts", "gold"),
-            tone_pill(f"Net {RoomState.net_prize} pts", "cyan"),
             rx.cond(
                 RoomState.slug == "loto",
                 tone_pill(RoomState.tier_label, "sky"),
@@ -343,7 +319,7 @@ def seat_chip(player: PlayerRow) -> rx.Component:
                     ),
                     rx.el.span(
                         f"{player['hand_count']} tuile(s) • "
-                        f"{player['score']} pts",
+                        f"{player['score']} score",
                         class_name="text-[10px] font-bold text-[#7DC5FA]",
                     ),
                 ),
@@ -938,14 +914,7 @@ def loto_board() -> rx.Component:
         ),
         rx.el.div(
             tone_pill(RoomState.tier_label, "gold"),
-            tone_pill(f"Pot {RoomState.pot_coins} pts", "cyan"),
-            tone_pill(f"Net {RoomState.net_prize} pts", "emerald"),
-            tone_pill("Mandry 1 20% • Mandry 2 30% • Aoka 50%", "sky"),
             class_name="mt-3 flex flex-wrap gap-1.5",
-        ),
-        rx.el.p(
-            RoomState.loto_tier_notice,
-            class_name="mt-2 text-[10px] leading-relaxed text-slate-500",
         ),
         rx.el.div(
             section("ticket", "Mes cartons"),
@@ -987,14 +956,9 @@ def loto_tray() -> rx.Component:
                     "outline-hidden focus:border-[#22D3EE]"
                 ),
             ),
-            rx.el.p(
-                f"{RoomState.tier_label}: {RoomState.tier_price} pts / "
-                f"carton • total {RoomState.buy_total_points} pts internes",
-                class_name="mt-1 text-[10px] font-semibold text-slate-400",
-            ),
             rx.el.button(
                 rx.icon("plus", class_name="h-4 w-4"),
-                "Acheter",
+                "Ajouter",
                 on_click=RoomState.buy_cards,
                 disabled=~RoomState.is_waiting,
                 class_name=(
@@ -1458,11 +1422,6 @@ def result_overlay() -> rx.Component:
                     class_name=(
                         "mt-3 flex max-h-56 flex-col gap-2 overflow-y-auto"
                     ),
-                ),
-                rx.el.p(
-                    "Pot et gains en points internes TATA uniquement: aucun "
-                    "depot, aucun retrait, aucune valeur monetaire.",
-                    class_name="mt-2 text-[10px] text-slate-500",
                 ),
                 rx.el.div(
                     rx.el.a(
