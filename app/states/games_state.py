@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import secrets
 from typing import Any, TypedDict
 
 import reflex as rx
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+
+from app import game_engine as engine
 
 from app.games_catalog import (
     CATALOG,
@@ -90,6 +93,11 @@ class GamesState(rx.State):
     secret_room_name: str = ""
     room_secret: str = ""
     quick_playing: bool = False
+
+    # ---- one-click authenticated solo practice -------------------------
+    solo_busy: bool = False
+    solo_slug: str = ""
+    solo_error: str = ""
     status_filters: list[dict[str, str]] = [
         {"value": "all", "label": "Toutes"},
         {"value": "open", "label": "Ouvertes"},
@@ -660,6 +668,8 @@ class GamesState(rx.State):
                         JOIN account a ON a.id = r.host_id
                         LEFT JOIN profile p ON p.account_id = a.id
                         WHERE g.slug = :slug AND r.status <> 'closed'
+                          AND CAST(r.rules_json AS TEXT) NOT LIKE
+                              '%solo_test%'
                         ORDER BY
                           CASE r.status WHEN 'open' THEN 0
                                WHEN 'waiting' THEN 1
@@ -1040,6 +1050,8 @@ class GamesState(rx.State):
                             WHERE g.slug = :s
                               AND r.is_private = false
                               AND r.status IN ('open', 'waiting')
+                              AND CAST(r.rules_json AS TEXT) NOT LIKE
+                                  '%solo_test%'
                               AND r.player_count < r.max_players
                             ORDER BY
                               CASE r.status WHEN 'waiting' THEN 0 ELSE 1 END,
@@ -1070,6 +1082,211 @@ class GamesState(rx.State):
             return rx.toast("Quick Play a echoue.")
         self.quick_playing = False
         return GamesState.join_room(room_id, "")
+
+    # ------------------------------------------------- solo practice mode
+    @rx.var
+    def solo_hint(self) -> str:
+        return (
+            "Mode test solo — ouvrez une partie instantanement, sans "
+            "attendre d'autres joueurs. Session d'entrainement privee: "
+            "elle n'affecte pas les salles publiques ni les statistiques."
+        )
+
+    def _solo_plan(
+        self, slug: str, account_id: int
+    ) -> tuple[dict[str, Any], dict[str, Any], int, int, int]:
+        """Return (rules, state, turn, deadline seconds, max_players)."""
+        if slug == "domino":
+            bots = [{"id": -1, "name": "Bot TATA"}]
+            participants = [account_id, -1]
+            rules: dict[str, Any] = {
+                "solo_test": True,
+                "game_mode": "classic",
+                "target_score": 50,
+                "maty": 50,
+                "number_of_players": 2,
+                "no_double_six": False,
+                "one_on_blank": False,
+                "fill_with_bots": True,
+                "bots": bots,
+                "order": participants,
+                "game_state": "playing",
+            }
+            state = engine.domino_initial_state(participants, rules)
+            return (
+                rules,
+                state,
+                int(state.get("turn", account_id)),
+                engine.domino_turn_seconds(rules),
+                2,
+            )
+        if slug == "ludo":
+            rules = engine.ludo_normalize_rules(
+                {"solo_test": True, "number_of_players": 1}
+            )
+            state = engine.ludo_initial_state([account_id], rules)
+            return rules, state, account_id, 30, 4
+        rules = {"solo_test": True, "tier": "bronze", "draw_seconds": 12}
+        state = engine.loto_initial_state()
+        state["phase"] = "playing"
+        return rules, state, 0, 12, 8
+
+    @rx.event
+    async def start_solo_test(self, slug: str):
+        """Create a private, immediately playable practice room and enter it."""
+        auth = await self.get_state(AuthState)
+        if not auth.account_id:
+            yield rx.redirect("/login")
+            return
+        if slug not in VISIBLE_SLUGS:
+            yield rx.toast("Ce jeu n'est pas disponible.")
+            return
+        if self.solo_busy:
+            return
+        self.solo_busy = True
+        self.solo_slug = slug
+        self.solo_error = ""
+        yield
+
+        me = auth.account_id
+        rules, state, turn, seconds, max_players = self._solo_plan(slug, me)
+        title = f"Test solo — {slug.upper()}"
+        room_id = 0
+        try:
+            async with rx.asession() as asession:
+                game_row = (
+                    await asession.execute(
+                        text("SELECT id FROM game WHERE slug = :s"),
+                        {"s": slug},
+                    )
+                ).first()
+                if game_row is None:
+                    self.solo_busy = False
+                    self.solo_slug = ""
+                    self.solo_error = "Jeu introuvable."
+                    yield rx.toast("Jeu introuvable.")
+                    return
+                for _ in range(10):
+                    code = f"S{secrets.token_hex(3).upper()}"
+                    taken = (
+                        await asession.execute(
+                            text(
+                                "SELECT 1 FROM game_room WHERE code = :c "
+                                "LIMIT 1"
+                            ),
+                            {"c": code},
+                        )
+                    ).first()
+                    if taken is not None:
+                        continue
+                    inserted = (
+                        await asession.execute(
+                            text(
+                                """
+                                INSERT INTO game_room (game_id, host_id, code,
+                                    name, status, is_private, password_hash,
+                                    max_players, player_count, entry_coins,
+                                    rules_json, state_json, round_number,
+                                    pot_coins, state_version,
+                                    current_turn_account_id, turn_deadline_at,
+                                    created_at, updated_at)
+                                VALUES (:g, :h, :code, :name, 'active', true,
+                                    '', :max_players, 1, 0, :rules, :state, 1,
+                                    0, 0, :turn,
+                                    NOW() + (:seconds * INTERVAL '1 second'),
+                                    NOW(), NOW())
+                                RETURNING id
+                                """
+                            ),
+                            {
+                                "g": int(game_row[0]),
+                                "h": me,
+                                "code": code,
+                                "name": title,
+                                "max_players": max_players,
+                                "rules": json.dumps(rules),
+                                "state": json.dumps(state),
+                                "turn": turn or None,
+                                "seconds": seconds,
+                            },
+                        )
+                    ).first()
+                    room_id = int(inserted[0])
+                    break
+                if not room_id:
+                    await asession.rollback()
+                    self.solo_busy = False
+                    self.solo_slug = ""
+                    self.solo_error = (
+                        "Impossible de generer un code unique. Reessayez."
+                    )
+                    yield rx.toast("Impossible d'ouvrir le test solo.")
+                    return
+                await asession.execute(
+                    text(
+                        """
+                        INSERT INTO game_room_member (room_id, account_id,
+                            seat, is_host, is_ready, score, result, joined_at)
+                        VALUES (:r, :a, 0, true, true, 0, '', NOW())
+                        """
+                    ),
+                    {"r": room_id, "a": me},
+                )
+                if slug == "loto":
+                    rng = random.Random()
+                    for index in (1, 2):
+                        await asession.execute(
+                            text(
+                                """
+                                INSERT INTO bingo_card (room_id, account_id,
+                                    card_index, grid_json, marked_json,
+                                    marked_count, row_progress_json,
+                                    price_coins, tier, claimed_quine,
+                                    claimed_double_quine, claimed_full_house,
+                                    is_void, created_at, updated_at)
+                                VALUES (:r, :a, :i, :grid, '[]', 0,
+                                    '[0, 0, 0]', 0, 'bronze', false, false,
+                                    false, false, NOW(), NOW())
+                                """
+                            ),
+                            {
+                                "r": room_id,
+                                "a": me,
+                                "i": index,
+                                "grid": json.dumps(
+                                    engine.generate_loto_card(rng)
+                                ),
+                            },
+                        )
+                await asession.execute(
+                    text(
+                        """
+                        INSERT INTO game_room_event (room_id, account_id,
+                            event_type, detail, created_at)
+                        VALUES (:r, :a, 'system', :d, NOW())
+                        """
+                    ),
+                    {
+                        "r": room_id,
+                        "a": me,
+                        "d": (
+                            f"Mode test solo ouvert par {auth.display_name} "
+                            "(session d'entrainement)"
+                        ),
+                    },
+                )
+                await asession.commit()
+        except (SQLAlchemyError, engine.MoveError) as exc:
+            logging.exception(f"Error: {exc}")
+            self.solo_busy = False
+            self.solo_slug = ""
+            self.solo_error = "Le test solo a echoue. Reessayez."
+            yield rx.toast("Le test solo a echoue.")
+            return
+        self.solo_busy = False
+        self.solo_slug = ""
+        yield rx.toast("Mode test solo pret: la partie est lancee.")
+        yield rx.redirect(f"/game/room/{room_id}")
 
     # ------------------------------------------- generic creation sheet
     @rx.event

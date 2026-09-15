@@ -133,6 +133,33 @@ def action_bar() -> rx.Component:
                 "font-bold text-[#0B4F86] hover:bg-[#F5FAFF]"
             ),
         ),
+        rx.el.button(
+            rx.cond(
+                GamesState.solo_busy,
+                rx.icon("loader-circle", class_name="h-4 w-4 animate-spin"),
+                rx.icon("flask-conical", class_name="h-4 w-4"),
+            ),
+            rx.el.span(
+                rx.cond(GamesState.solo_busy, "Ouverture...", "Tester seul")
+            ),
+            rx.el.span(
+                "SOLO",
+                class_name=(
+                    "rounded-sm border border-[#22D3EE]/60 bg-[#ECFEFF] "
+                    "px-1 py-px text-[9px] font-bold tracking-wider "
+                    "text-[#0E7490]"
+                ),
+            ),
+            on_click=lambda: GamesState.start_solo_test(GamesState.active_slug),
+            disabled=GamesState.solo_busy,
+            title="Mode test solo: partie d'entrainement immediate",
+            class_name=(
+                "flex flex-1 items-center justify-center gap-2 rounded-lg "
+                "border border-[#22D3EE] bg-white px-4 py-2.5 text-sm "
+                "font-bold text-[#0E7490] hover:bg-[#ECFEFF] "
+                "disabled:opacity-60"
+            ),
+        ),
         class_name="flex flex-col gap-2 sm:flex-row",
     )
 
@@ -489,6 +516,14 @@ def detail_body() -> rx.Component:
                     class_name="grid w-full grid-cols-2 gap-2",
                 ),
                 action_bar(),
+                rx.el.p(
+                    GamesState.solo_hint,
+                    class_name=(
+                        "rounded-lg border border-[#22D3EE]/40 bg-[#F5FEFF] "
+                        "px-3 py-2 text-[11px] font-medium leading-relaxed "
+                        "text-slate-600"
+                    ),
+                ),
                 join_by_code(),
                 class_name="flex w-full flex-col gap-3 lg:w-1/2",
             ),

@@ -92,6 +92,11 @@ def lobby_header() -> rx.Component:
                     RoomState.room_name,
                     class_name="truncate text-[11px] font-medium text-slate-400",
                 ),
+                rx.cond(
+                    RoomState.is_solo_test,
+                    chip("Mode test solo", "cyan"),
+                    rx.fragment(),
+                ),
                 class_name="min-w-0 flex-1",
             ),
             connection_chip(),

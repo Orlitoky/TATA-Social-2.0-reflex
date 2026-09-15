@@ -55,6 +55,79 @@ def play_link(slug: str | rx.Var, compact: bool = False) -> rx.Component:
     )
 
 
+def solo_badge() -> rx.Component:
+    return rx.el.span(
+        "SOLO",
+        class_name=(
+            "w-fit rounded-sm border border-[#22D3EE]/60 bg-[#ECFEFF] "
+            "px-1 py-px text-[9px] font-bold tracking-wider text-[#0E7490]"
+        ),
+    )
+
+
+def solo_button(slug: str | rx.Var, compact: bool = False) -> rx.Component:
+    """Secondary cyan outlined one-click practice entry."""
+    busy = GamesState.solo_busy & (GamesState.solo_slug == slug)
+    return rx.el.button(
+        rx.cond(
+            busy,
+            rx.icon("loader-circle", class_name="h-3.5 w-3.5 animate-spin"),
+            rx.icon("flask-conical", class_name="h-3.5 w-3.5"),
+        ),
+        rx.el.span(rx.cond(busy, "Ouverture...", "Tester seul")),
+        solo_badge(),
+        on_click=lambda: GamesState.start_solo_test(slug),
+        disabled=GamesState.solo_busy,
+        title="Mode test solo: partie d'entrainement immediate",
+        class_name=(
+            "flex w-fit shrink-0 items-center gap-1 rounded-lg border "
+            "border-[#22D3EE] bg-white font-bold text-[#0E7490] "
+            "hover:bg-[#ECFEFF] disabled:opacity-60 "
+            + (
+                rx.cond(
+                    compact, "px-2.5 py-1.5 text-[11px]", "px-3 py-2 text-xs"
+                )
+            )
+        ),
+    )
+
+
+def solo_banner() -> rx.Component:
+    return rx.el.div(
+        rx.el.div(
+            rx.icon("flask-conical", class_name="h-4 w-4 text-[#0E7490]"),
+            class_name=(
+                "flex size-8 shrink-0 items-center justify-center rounded-lg "
+                "border border-[#22D3EE]/60 bg-[#ECFEFF]"
+            ),
+        ),
+        rx.el.div(
+            rx.el.div(
+                rx.el.p(
+                    "Mode test solo",
+                    class_name="text-xs font-bold text-[#071A33]",
+                ),
+                solo_badge(),
+                class_name="flex items-center gap-1.5",
+            ),
+            rx.el.p(
+                "Ouvrez une partie instantanement, sans attendre d'autres "
+                "joueurs. Session d'entrainement privee: elle n'affecte pas "
+                "les salles publiques ni vos statistiques.",
+                class_name=(
+                    "mt-0.5 text-[11px] font-medium leading-relaxed "
+                    "text-slate-600"
+                ),
+            ),
+            class_name="min-w-0 flex-1",
+        ),
+        class_name=(
+            "flex items-start gap-2 rounded-xl border border-[#22D3EE]/40 "
+            "bg-[#F5FEFF] px-3 py-2.5"
+        ),
+    )
+
+
 # ------------------------------------------------------------------ header row
 def welcome_row() -> rx.Component:
     return rx.el.div(
@@ -247,8 +320,12 @@ def featured_lead(card: GameCard) -> rx.Component:
             ),
             rx.el.div(
                 live_dot(card["is_live"], card["live_label"]),
-                play_link(card["slug"]),
-                class_name="mt-3 flex items-center justify-between gap-2",
+                rx.el.div(
+                    solo_button(card["slug"], True),
+                    play_link(card["slug"]),
+                    class_name="flex items-center gap-2",
+                ),
+                class_name="mt-3 flex flex-wrap items-center justify-between gap-2",
             ),
             class_name="flex min-w-0 flex-1 flex-col justify-center p-3",
         ),
@@ -301,6 +378,7 @@ def popular_card(card: GameCard) -> rx.Component:
         ),
         live_dot(card["is_live"], card["live_label"]),
         play_link(card["slug"], True),
+        solo_button(card["slug"], True),
         class_name=(
             "flex w-40 shrink-0 flex-col gap-1 rounded-xl border "
             "border-slate-200 bg-white p-2"
@@ -340,7 +418,11 @@ def all_games_row(card: GameCard) -> rx.Component:
             live_dot(card["is_live"], card["live_label"]),
             class_name="min-w-0 flex-1",
         ),
-        play_link(card["slug"], True),
+        rx.el.div(
+            play_link(card["slug"], True),
+            solo_button(card["slug"], True),
+            class_name="flex shrink-0 flex-col items-end gap-1.5",
+        ),
         class_name=(
             "flex items-center gap-3 border-b border-slate-200 bg-white "
             "px-3 py-3 last:border-b-0 active:bg-slate-50"
@@ -494,6 +576,14 @@ def discovery_body() -> rx.Component:
         welcome_row(),
         search_row(),
         category_row(),
+        solo_banner(),
+        rx.cond(
+            GamesState.solo_error != "",
+            rx.el.p(
+                GamesState.solo_error,
+                class_name="text-xs font-semibold text-rose-500",
+            ),
+        ),
         join_code_row(),
         rx.cond(
             GamesState.error != "",

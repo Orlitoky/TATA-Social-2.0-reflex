@@ -114,6 +114,16 @@ def top_bar() -> rx.Component:
         rx.el.div(
             tone_pill(RoomState.status_label, "emerald"),
             rx.cond(
+                RoomState.is_solo_test,
+                tone_pill("Mode test solo", "cyan"),
+                rx.fragment(),
+            ),
+            rx.cond(
+                RoomState.is_solo_test & (RoomState.slug == "ludo"),
+                tone_pill("Entrainement solo", "cyan"),
+                rx.fragment(),
+            ),
+            rx.cond(
                 RoomState.slug == "loto",
                 tone_pill(RoomState.tier_label, "sky"),
                 rx.fragment(),
@@ -1406,6 +1416,19 @@ def result_overlay() -> rx.Component:
                         rx.el.p(
                             RoomState.result_detail,
                             class_name="text-[11px] text-slate-400",
+                        ),
+                        rx.cond(
+                            RoomState.is_solo_test,
+                            rx.el.span(
+                                "Mode test solo • SOLO",
+                                class_name=(
+                                    "mt-1 inline-block w-fit rounded-md "
+                                    "border border-[#22D3EE]/50 "
+                                    "bg-[#22D3EE]/10 px-2 py-0.5 "
+                                    "text-[10px] font-bold text-[#67E8F9]"
+                                ),
+                            ),
+                            rx.fragment(),
                         ),
                         class_name="min-w-0 flex-1",
                     ),

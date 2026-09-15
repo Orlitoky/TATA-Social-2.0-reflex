@@ -208,6 +208,11 @@ def room_head() -> rx.Component:
             ),
             rx.el.div(
                 jewel_tag(RoomState.status_label, "emerald"),
+                rx.cond(
+                    RoomState.is_solo_test,
+                    jewel_tag("Mode test solo", "cyan"),
+                    rx.fragment(),
+                ),
                 class_name="flex flex-wrap gap-1.5",
             ),
             class_name="flex flex-col gap-3 sm:flex-row sm:items-start",

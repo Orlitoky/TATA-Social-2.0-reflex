@@ -208,6 +208,7 @@ class RoomState(rx.State):
     is_private: bool = False
     is_host: bool = False
     is_member: bool = False
+    is_solo_test: bool = False
     max_players: int = 0
     player_count: int = 0
     state_version: int = 0
@@ -729,7 +730,8 @@ class RoomState(rx.State):
             ),
             {"w": winner_id, "r": room_id},
         )
-        if payable:
+        if payable and not self.is_solo_test:
+            # Practice sessions never touch competitive win/loss stats.
             await self._stats(asession, room_id, game_id, payable)
         await self._event(
             asession,
@@ -838,6 +840,7 @@ class RoomState(rx.State):
             self.turn_account_id = int(room[4] or 0)
             self.round_number = int(room[5] or 0)
             self.is_host = int(room[8]) == me
+            self.is_solo_test = bool(rules.get("solo_test"))
             self.max_players = int(room[10] or 0)
             self.is_private = bool(room[14])
             self.player_count = int(room[19] or 0)
@@ -2522,7 +2525,7 @@ class RoomState(rx.State):
                     ),
                     {"w": winner_id, "r": self.active_id},
                 )
-                if winner_id:
+                if winner_id and not bool(rules.get("solo_test")):
                     await self._stats(
                         asession, self.active_id, int(room[16]), winner_id
                     )
@@ -2860,6 +2863,14 @@ class RoomState(rx.State):
                 yield rx.toast("La revanche s'ouvre apres la fin de la partie.")
                 return
             rules = json.loads(str(room[1]) or "{}")
+            if bool(rules.get("solo_test")):
+                from app.states.games_state import GamesState as _Games
+
+                slug = str(room[7])
+                self.polling = False
+                self.active_id = 0
+                yield _Games.start_solo_test(slug)
+                return
             for volatile in ("bots", "order", "game_state", "created_at"):
                 rules.pop(volatile, None)
             base_name = str(room[12]) or str(room[13])

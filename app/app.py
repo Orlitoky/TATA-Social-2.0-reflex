@@ -10,6 +10,7 @@ from app.pages.leaderboard import leaderboard_page
 from app.pages.messages import messages_page
 from app.pages.profile import profile_page
 from app.pages.settings import settings_page
+from app.components.tata_table import tata_room
 from app.states.auth_state import AuthState
 from app.states.friends_state import FriendsState
 from app.states.games_state import GamesState
@@ -23,6 +24,10 @@ from app.states.social_state import SocialState
 
 def index() -> rx.Component:
     return home_page()
+
+
+def game_preview_page() -> rx.Component:
+    return tata_room()
 
 
 app = rx.App(
@@ -42,6 +47,7 @@ app = rx.App(
     ],
 )
 app.add_page(index, route="/", on_load=AuthState.check_session)
+app.add_page(game_preview_page, route="/game-preview")
 app.add_page(
     friends_page,
     route="/friends",
